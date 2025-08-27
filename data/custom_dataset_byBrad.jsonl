@@ -1,0 +1,2 @@
+{"conversations": [{"from": "human", "value": "这张图片里有什么？<image>"}, {"from": "gpt", "value": "这张图片里有一个人站在房间正中央。"}], "images": ["custom_data_byBrad/S1_Directions.54138969_000001.jpg"]}
+{"conversations": [{"from": "human", "value": "请描述一下这个视频的内容。<video>"}, {"from": "gpt", "value": "视频展示了一个人在房间中央里做出各种动作。"}], "videos": ["custom_data_byBrad/Directions 1.54138969.mp4"]}

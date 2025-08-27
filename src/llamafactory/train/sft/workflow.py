@@ -46,10 +46,10 @@ def run_sft(
     callbacks: Optional[list["TrainerCallback"]] = None,
 ):
     tokenizer_module = load_tokenizer(model_args)
-    tokenizer = tokenizer_module["tokenizer"]
+    tokenizer = tokenizer_module["tokenizer"]   # <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
-    model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
+    model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)  # <class 'peft.peft_model.PeftModelForCausalLM'>
 
     if getattr(model, "is_quantized", False) and not training_args.do_train:
         setattr(model, "_hf_peft_config_loaded", True)  # hack here: make model compatible with prediction

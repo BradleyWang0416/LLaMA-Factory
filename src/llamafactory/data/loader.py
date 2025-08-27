@@ -254,7 +254,7 @@ def _get_preprocessed_dataset(
         )
     # Dataset({features: ['_prompt', '_response', '_system', '_tools', '_images', '_videos', '_audios'], num_rows: 6})
     dataset = dataset.map(
-        dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer
+        dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer, 见 src/llamafactory/data/processor/unsupervised.py
         batched=True,
         batch_size=data_args.preprocessing_batch_size,
         remove_columns=column_names,

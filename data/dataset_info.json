@@ -714,5 +714,14 @@
       "prompt": "content"
     },
     "folder": "python"
+  },
+  "custom_dataset_byBrad": {
+    "file_name": "custom_dataset_byBrad.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "images": "images",
+      "videos": "videos"
+    }
   }
 }

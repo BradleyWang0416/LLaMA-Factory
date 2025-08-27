@@ -116,9 +116,10 @@ def vllm_infer(
     # load datasets
     dataset_module = get_dataset(template_obj, model_args, data_args, training_args, "ppo", **tokenizer_module)
     # {'train_dataset': Dataset({
-    #     features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'],
-    #     num_rows: 6
-    # })}
+    #                               features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'],
+    #                               num_rows: 6
+    #                           })
+    # }
     train_dataset = dataset_module["train_dataset"]
     # train_dataset[i]:
     #   {
@@ -152,11 +153,19 @@ def vllm_infer(
     for i in tqdm(range(0, len(train_dataset), batch_size), desc="Processing batched inference"):
         vllm_inputs, prompts, labels = [], [], []
         batch = train_dataset[i : min(i + batch_size, len(train_dataset))]
+        # batch: dict
+        # {'input_ids': [[...], [...], [...], [...], [...], [...]], 
+        #  'attention_mask': [[...], [...], [...], [...], [...], [...]], 
+        #  'labels': [[...], [...], [...], [...], [...], [...]], 
+        #  'images': [[...], [...], [...], [...], [...], [...]], 
+        #  'videos': [None, None, None, None, None, None], 
+        #  'audios': [None, None, None, None, None, None]}
 
-        for j in range(len(batch["input_ids"])):
+        for j in range(len(batch["input_ids"])):    # 遍历 batch 内的每个样本
             if batch["images"][j] is not None:
-                image = batch["images"][j]
+                image = batch["images"][j]  # ['data/mllm_demo_data/1.jpg', 'data/mllm_demo_data/1.jpg']
                 multi_modal_data = {
+                    # template_obj.mm_plugin: Qwen2VLPlugin(image_token='<|image_pad|>', video_token='<|video_pad|>', audio_token=None, expand_mm_tokens=False)
                     "image": template_obj.mm_plugin._regularize_images(
                         image, image_max_pixels=image_max_pixels, image_min_pixels=image_min_pixels
                     )["images"]
@@ -183,7 +192,10 @@ def vllm_infer(
                 multi_modal_data = None
 
             vllm_inputs.append({"prompt_token_ids": batch["input_ids"][j], "multi_modal_data": multi_modal_data})
-            prompts.append(tokenizer.decode(batch["input_ids"][j], skip_special_tokens=skip_special_tokens))
+            prompts.append(tokenizer.decode(batch["input_ids"][j], skip_special_tokens=skip_special_tokens))    # skip_special_tokens: True
+            """若 skip_special_tokens 为 False, 则 tokenizer.decode 输出如下:
+            '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>请描述这张图片<|im_end|>\n<|im_start|>assistant\n中国宇航员桂海潮正在讲话。<|im_end|>\n<|im_start|>user\n他取得过哪些成就？<|im_end|>\n<|im_start|>assistant\n'
+            """
             labels.append(
                 tokenizer.decode(
                     list(filter(lambda x: x != IGNORE_INDEX, batch["labels"][j])),
