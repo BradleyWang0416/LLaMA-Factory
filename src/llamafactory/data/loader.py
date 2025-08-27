@@ -243,7 +243,10 @@ def _get_preprocessed_dataset(
 
     dataset_processor = _get_dataset_processor(
         data_args, stage, template, tokenizer, processor, do_generate=(training_args.predict_with_generate and is_eval)
-    )   # dataset_processor: <class 'llamafactory.data.processor.unsupervised.UnsupervisedDatasetProcessor'>
+    )   
+    # dataset_processor is an object of one of the following classes:
+    # <class 'llamafactory.data.processor.unsupervised.UnsupervisedDatasetProcessor'>
+    # <class 'llamafactory.data.processor.supervised.SupervisedDatasetProcessor'>
     column_names = list(next(iter(dataset)).keys())
     kwargs = {}
     if not data_args.streaming:
