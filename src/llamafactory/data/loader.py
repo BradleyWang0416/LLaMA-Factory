@@ -243,7 +243,7 @@ def _get_preprocessed_dataset(
 
     dataset_processor = _get_dataset_processor(
         data_args, stage, template, tokenizer, processor, do_generate=(training_args.predict_with_generate and is_eval)
-    )
+    )   # dataset_processor: <class 'llamafactory.data.processor.unsupervised.UnsupervisedDatasetProcessor'>
     column_names = list(next(iter(dataset)).keys())
     kwargs = {}
     if not data_args.streaming:
@@ -252,14 +252,15 @@ def _get_preprocessed_dataset(
             load_from_cache_file=(not data_args.overwrite_cache) or (training_args.local_process_index != 0),
             desc="Running tokenizer on dataset",
         )
-
+    # Dataset({features: ['_prompt', '_response', '_system', '_tools', '_images', '_videos', '_audios'], num_rows: 6})
     dataset = dataset.map(
-        dataset_processor.preprocess_dataset,
+        dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer
         batched=True,
         batch_size=data_args.preprocessing_batch_size,
         remove_columns=column_names,
         **kwargs,
     )
+    # Dataset({features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'], num_rows: 6})
 
     if training_args.should_log:
         try:

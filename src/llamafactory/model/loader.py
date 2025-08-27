@@ -76,7 +76,7 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     init_kwargs = _get_init_kwargs(model_args)
     try:
         tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path,
+            model_args.model_name_or_path,  # 'Qwen/Qwen2.5-VL-7B-Instruct'
             use_fast=model_args.use_fast_tokenizer,
             split_special_tokens=model_args.split_special_tokens,
             padding_side="right",
@@ -93,6 +93,10 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
         raise OSError("Failed to load tokenizer.") from e
 
     patch_tokenizer(tokenizer, model_args)
+    # tokenizer: <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>
+    """查看special_tokens
+    print(tokenizer.all_special_tokens)
+    """
 
     try:
         processor = AutoProcessor.from_pretrained(
@@ -109,7 +113,8 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     except Exception as e:
         logger.info_rank0(f"Failed to load processor: {e}.")
         processor = None
-
+    # processor: <class 'transformers.models.qwen2_5_vl.processing_qwen2_5_vl.Qwen2_5_VLProcessor'>
+    
     # Avoid load tokenizer, see:
     # https://github.com/huggingface/transformers/blob/v4.40.0/src/transformers/models/auto/processing_auto.py#L324
     if processor is not None and "Processor" not in processor.__class__.__name__:

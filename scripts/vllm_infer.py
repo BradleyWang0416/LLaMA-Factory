@@ -89,10 +89,12 @@ def vllm_infer(
 
     training_args = Seq2SeqTrainingArguments(output_dir="dummy_dir")
     tokenizer_module = load_tokenizer(model_args)
+    # {'tokenizer': <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>, 
+    #  'processor': <class 'transformers.models.qwen2_5_vl.processing_qwen2_5_vl.Qwen2_5_VLProcessor'>}
     tokenizer = tokenizer_module["tokenizer"]
     template_obj = get_template_and_fix_tokenizer(tokenizer, data_args)
     template_obj.mm_plugin.expand_mm_tokens = False  # for vllm generate
-
+    # template_obj: <class 'llamafactory.data.template.Template'>
     engine_args = {
         "model": model_args.model_name_or_path,
         "trust_remote_code": True,
@@ -113,7 +115,20 @@ def vllm_infer(
 
     # load datasets
     dataset_module = get_dataset(template_obj, model_args, data_args, training_args, "ppo", **tokenizer_module)
+    # {'train_dataset': Dataset({
+    #     features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'],
+    #     num_rows: 6
+    # })}
     train_dataset = dataset_module["train_dataset"]
+    # train_dataset[i]:
+    #   {
+    #       'input_ids': list, len=55
+    #       'attention_mask': list, len=55
+    #       'labels': list, len=10
+    #       'images': list, len=2
+    #       'videos': None
+    #       'audios': None
+    #   }
 
     sampling_params = SamplingParams(
         repetition_penalty=generating_args.repetition_penalty or 1.0,  # repetition_penalty must > 0
