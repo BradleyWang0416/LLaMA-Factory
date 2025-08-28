@@ -243,7 +243,7 @@ def _get_preprocessed_dataset(
 
     dataset_processor = _get_dataset_processor(
         data_args, stage, template, tokenizer, processor, do_generate=(training_args.predict_with_generate and is_eval)
-    )   
+    )
     # dataset_processor is an object of one of the following classes:
     # <class 'llamafactory.data.processor.unsupervised.UnsupervisedDatasetProcessor'>
     # <class 'llamafactory.data.processor.supervised.SupervisedDatasetProcessor'>
@@ -256,6 +256,9 @@ def _get_preprocessed_dataset(
             desc="Running tokenizer on dataset",
         )
     # Dataset({features: ['_prompt', '_response', '_system', '_tools', '_images', '_videos', '_audios'], num_rows: 6})
+    """dataset.map doesn't support debugpy. use the code below for debug
+    dataset = dataset_processor.preprocess_dataset(dataset[:])
+    """
     dataset = dataset.map(
         dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer, 见 src/llamafactory/data/processor/unsupervised.py
         batched=True,
