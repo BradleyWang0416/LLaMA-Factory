@@ -1824,7 +1824,9 @@ register_template(
     default_system="You are a helpful assistant.",
     stop_words=["<|im_end|>"],
     replace_eos=True,
-    mm_plugin=get_mm_plugin(name="qwen2_vl", image_token="<|image_pad|>", video_token="<|video_pad|>"),
+    mm_plugin=get_mm_plugin(name="qwen2_vl", image_token="<|image_pad|>", video_token="<|video_pad|>",
+                            skeleton_token="<|skeleton_pad|>" # ADDED BY BRADLEY 250827
+                            ),
 )
 
 
