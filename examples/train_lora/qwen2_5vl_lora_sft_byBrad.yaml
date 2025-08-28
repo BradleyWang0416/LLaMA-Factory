@@ -17,8 +17,10 @@ template: qwen2_vl
 cutoff_len: 2048
 max_samples: 1000
 overwrite_cache: true
-preprocessing_num_workers: 16
-dataloader_num_workers: 4
+# preprocessing_num_workers: 16
+preprocessing_num_workers: 1    # 使用 16 在 src/llamafactory/data/loader.py 中的 dataset.map 这一步会报错
+# dataloader_num_workers: 4
+dataloader_num_workers: 1
 
 ### output
 output_dir: saves/qwen2_5vl-7b_byBrad/lora/sft
@@ -45,3 +47,13 @@ resume_from_checkpoint: null
 # per_device_eval_batch_size: 1
 # eval_strategy: steps
 # eval_steps: 500
+
+
+# ADDED BY BRADLEY 250827
+add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
+resize_vocab: true
+
+# 自定义参数
+codebook_size: 8192 # TODO: 自定义参数会在 train/tuner.py::L55 "get_train_args(args)" 之后丢失, 不会被加入到参数中, 需要修改源码
+
+# 其他参数见 src/llamafactory/hparams/model_args.py
