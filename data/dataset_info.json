@@ -721,7 +721,8 @@
     "columns": {
       "messages": "conversations",
       "images": "images",
-      "videos": "videos"
+      "videos": "videos",
+      "skeletons": "skeletons"
     }
   }
 }
