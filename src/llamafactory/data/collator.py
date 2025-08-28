@@ -25,8 +25,10 @@ from peft import PeftModel
 from transformers import DataCollatorForSeq2Seq
 
 from ..extras.constants import AUDIO_PLACEHOLDER, IGNORE_INDEX, IMAGE_PLACEHOLDER
+from ..extras.constants import SKELETON_PLACEHOLDER    # ADDED BY BRADLEY 250828
 from ..extras.packages import is_pillow_available
 
+from ..extras_byBrad.get_rope_index import get_rope_index  # ADDED BY BRADLEY 250828
 
 if is_pillow_available():
     from PIL import Image
@@ -105,19 +107,28 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
         else:
             self.get_rope_func = None
 
+        # ADDED BY BRADLEY 250828 ###############################################################
+        self.get_rope_func = get_rope_index  # Override with custom function
+        #########################################################################################
+
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, "torch.Tensor"]:
         batch_images, batch_videos, batch_audios = [], [], []
         batch_imglens, batch_vidlens, batch_audlens, batch_input_ids = [], [], [], []
+        batch_skeletons = []    # ADDED BY BRADLEY 250828
+        batch_skelens = []    # ADDED BY BRADLEY 250828
         for feature in features:
             images = feature.pop("images", None) or []
             videos = feature.pop("videos", None) or []
             audios = feature.pop("audios", None) or []
+            skeletons = feature.pop("skeletons", None) or []    # ADDED BY BRADLEY 250828
             batch_images.extend(images)
             batch_videos.extend(videos)
             batch_audios.extend(audios)
+            batch_skeletons.extend(skeletons)    # ADDED BY BRADLEY 250828
             batch_imglens.append(len(images))
             batch_vidlens.append(len(videos))
             batch_audlens.append(len(audios))
+            batch_skelens.append(len(skeletons))    # ADDED BY BRADLEY 250828
             batch_input_ids.append(feature["input_ids"])
 
         fake_input_ids = []
@@ -153,6 +164,26 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             batch_audios = fake_audios
             batch_audlens[0] = 1
 
+        # ADDED BY BRADLEY 250828 ###############################################################
+        if self.template.mm_plugin.skeleton_token is not None and sum(batch_skelens) == 0:
+            # avoid process hanging in zero3/fsdp case
+            fake_messages = [{"role": "user", "content": SKELETON_PLACEHOLDER}]
+            # Create a minimal fake skeleton input, assuming it's a numpy array.
+            # The shape should be valid for your SkeletonProcessor.
+            # e.g., a single frame with 68 joints and 3 coordinates.
+            fake_skeletons = [np.zeros((16, 17, 3), dtype=np.float32)]
+            fake_messages = self.template.mm_plugin.process_messages(
+                fake_messages, [], [], [], fake_skeletons, self.processor
+            )
+            _fake_input_ids = self.tokenizer.encode(fake_messages[0]["content"], add_special_tokens=False)
+            _fake_input_ids, _ = self.template.mm_plugin.process_token_ids(
+                _fake_input_ids, None, [], [], [], fake_skeletons, self.tokenizer, self.processor
+            )
+            fake_input_ids.extend(_fake_input_ids)
+            batch_skeletons = fake_skeletons
+            batch_skelens[0] = 1
+        #########################################################################################
+
         if len(fake_input_ids) != 0:
             if self.tokenizer.padding_side == "right":
                 features[0]["input_ids"] = features[0]["input_ids"] + fake_input_ids
@@ -169,9 +200,11 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             batch_images,
             batch_videos,
             batch_audios,
+            batch_skeletons,    # ADDED BY BRADLEY 250828
             batch_imglens,
             batch_vidlens,
             batch_audlens,
+            batch_skelens,    # ADDED BY BRADLEY 250828
             batch_input_ids,
             self.processor,
         )
@@ -184,9 +217,11 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
 
         if self.get_rope_func is not None:
             rope_index_kwargs = {
+                'self': self.model.model, # ADDED BY BRADLEY 250828
                 "input_ids": features["input_ids"],
                 "image_grid_thw": mm_inputs.get("image_grid_thw"),
                 "video_grid_thw": mm_inputs.get("video_grid_thw"),
+                'skeleton_grid_thw': mm_inputs.get('skeleton_grid_thw'),  # ADDED BY BRADLEY 250828
                 "attention_mask": (features["attention_mask"] >= 1).float(),
             }
             if "second_per_grid_ts" in mm_inputs:  # for qwen2vl
