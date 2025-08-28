@@ -38,6 +38,10 @@ from .model_utils.unsloth import load_unsloth_pretrained_model
 from .model_utils.valuehead import load_valuehead_params
 from .patcher import patch_config, patch_model, patch_processor, patch_tokenizer, patch_valuehead_model
 
+# ADDED BY BRADLEY 250828 ###############################################################
+from ..extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+from safetensors.torch import load_file
+#########################################################################################
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, ProcessorMixin
@@ -123,6 +127,20 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
 
     if processor is not None:
         patch_processor(processor, tokenizer, model_args)
+
+    # ADDED BY BRADLEY 250828 ###############################################################
+    encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+    vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+    decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+    skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+    state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
+    skeleton_processor.load_state_dict(state_dict)
+    skeleton_processor = skeleton_processor.to('cpu')
+    skeleton_processor.eval()
+    for param in skeleton_processor.parameters():
+        param.requires_grad = False
+    setattr(processor, 'skeleton_processor', skeleton_processor)
+    #########################################################################################
 
     return {"tokenizer": tokenizer, "processor": processor}
 
@@ -226,5 +244,14 @@ def load_model(
     if model_args.print_param_status and int(os.getenv("LOCAL_RANK", "0")) == 0:
         for name, param in model.named_parameters():
             print(f"name: {name}, dtype: {param.dtype}, device: {param.device}, trainable: {param.requires_grad}")
+    
+    # ADDED BY BRADLEY 250828 ###############################################################
+    skeleton_token_id = tokenizer.convert_tokens_to_ids("<|skeleton_pad|>")
+    skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
+    skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
+    setattr(model.model.model.config, 'skeleton_token_id', skeleton_token_id)
+    setattr(model.model.model.config, 'skeleton_start_token_id', skeleton_start_token_id)
+    setattr(model.model.model.config, 'skeleton_end_token_id', skeleton_end_token_id)
+    #########################################################################################
 
     return model
