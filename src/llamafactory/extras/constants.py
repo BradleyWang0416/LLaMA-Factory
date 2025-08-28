@@ -95,6 +95,12 @@ V_HEAD_WEIGHTS_NAME = "value_head.bin"
 
 V_HEAD_SAFE_WEIGHTS_NAME = "value_head.safetensors"
 
+# ADDED BY BRADLEY 250827 ###############################################################
+SKELETON_PLACEHOLDER = os.getenv("SKELETON_PLACEHOLDER", "<skeleton>")
+
+# For VQVAE codebook
+SKELETON_TOKEN_BASE = "<skl_{}>"
+#########################################################################################
 
 class AttentionFunction(str, Enum):
     AUTO = "auto"
