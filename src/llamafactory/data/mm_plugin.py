@@ -34,6 +34,12 @@ from transformers.models.mllama.processing_mllama import (
 from typing_extensions import override
 
 from ..extras.constants import AUDIO_PLACEHOLDER, IGNORE_INDEX, IMAGE_PLACEHOLDER, VIDEO_PLACEHOLDER
+
+# ADDED BY BRADLEY 250827 ###############################################################
+from ..extras.constants import SKELETON_PLACEHOLDER, SKELETON_TOKEN_BASE
+from ..extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor
+#########################################################################################
+
 from ..extras.packages import (
     is_librosa_available,
     is_pillow_available,
@@ -77,11 +83,16 @@ if TYPE_CHECKING:
     VideoInput = Union[str, BinaryIO, list[list[ImageInput]]]
     AudioInput = Union[str, BinaryIO, NDArray]
 
+    # ADDED BY BRADLEY 250827 ###############################################################
+    SkeletalInput = Union[str, BinaryIO, NDArray]
+    #########################################################################################
+
     class MMProcessor(ProcessorMixin):
         patch_size: int
         image_seq_length: int
         num_additional_image_tokens: int
         vision_feature_select_strategy: Literal["default", "full"]
+        skeleton_processor: SkeletonProcessor  # ADDED BY BRADLEY 250827
 
         def _get_number_of_features(self, orig_height: int, orig_width: int, height: int, width: int) -> int:
             pass
@@ -142,6 +153,7 @@ class MMPluginMixin:
     image_token: Optional[str]
     video_token: Optional[str]
     audio_token: Optional[str]
+    skeleton_token: Optional[str] # ADDED BY BRADLEY 250827
     expand_mm_tokens: bool = True
 
     def _validate_input(
@@ -150,6 +162,7 @@ class MMPluginMixin:
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
     ) -> None:
         r"""Validate if this model accepts the input modalities."""
         image_processor: BaseImageProcessor = getattr(processor, "image_processor", None)
@@ -157,6 +170,7 @@ class MMPluginMixin:
             processor, "video_processor", getattr(processor, "image_processor", None)
         )
         feature_extractor: SequenceFeatureExtractor = getattr(processor, "feature_extractor", None)
+        skeleton_processor: SkeletonProcessor = getattr(processor, "skeleton_processor", None)  # ADDED BY BRADLEY 250827
         if len(images) != 0 and self.image_token is None:
             raise ValueError(
                 "This model does not support image input. Please check whether the correct `template` is used."
@@ -171,6 +185,13 @@ class MMPluginMixin:
             raise ValueError(
                 "This model does not support audio input. Please check whether the correct `template` is used."
             )
+        
+        # ADDED BY BRADLEY 250827 ###############################################################
+        if len(skeletons) != 0 and self.skeleton_token is None:
+            raise ValueError(
+                "This model does not support skeleton input. Please check whether the correct `template` is used."
+            )
+        #########################################################################################
 
         if self.image_token is not None and processor is None:
             raise ValueError("Processor was not found, please check and update your model file.")
@@ -183,6 +204,11 @@ class MMPluginMixin:
 
         if self.audio_token is not None and feature_extractor is None:
             raise ValueError("Audio feature extractor was not found, please check and update your model file.")
+        
+        # ADDED BY BRADLEY 250827 ###############################################################
+        if self.skeleton_token is not None and skeleton_processor is None:
+            raise ValueError("Skeleton processor was not found, please check and update your model file.")
+        #########################################################################################
 
     def _validate_messages(
         self,
@@ -190,13 +216,16 @@ class MMPluginMixin:
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
     ):
         r"""Validate if the number of images, videos and audios match the number of placeholders in messages."""
         num_image_tokens, num_video_tokens, num_audio_tokens = 0, 0, 0
+        num_skeleton_tokens = 0 # ADDED BY BRADLEY 250827
         for message in messages:
             num_image_tokens += message["content"].count(IMAGE_PLACEHOLDER)
             num_video_tokens += message["content"].count(VIDEO_PLACEHOLDER)
             num_audio_tokens += message["content"].count(AUDIO_PLACEHOLDER)
+            num_skeleton_tokens += message["content"].count(SKELETON_PLACEHOLDER) # ADDED BY BRADLEY 250827
 
         if len(images) != num_image_tokens:
             raise ValueError(
@@ -212,6 +241,12 @@ class MMPluginMixin:
             raise ValueError(
                 f"The number of audios does not match the number of {AUDIO_PLACEHOLDER} tokens in {messages}."
             )
+        # ADDED BY BRADLEY 250827 ###############################################################
+        if len(skeletons) != num_skeleton_tokens:
+            raise ValueError(
+                f"The number of skeletons does not match the number of {SKELETON_PLACEHOLDER} tokens in {messages}."
+            )
+        #########################################################################################
 
     def _preprocess_image(
         self, image: "ImageObject", image_max_pixels: int, image_min_pixels: int, **kwargs
@@ -303,11 +338,52 @@ class MMPluginMixin:
 
         return {"audios": results, "sampling_rates": sampling_rates}
 
+
+    # ADDED BY BRADLEY 250827 ###############################################################
+    def _regularize_skeletons(
+        self, skeletons: list["SkeletalInput"], processor: "MMProcessor", **kwargs
+    ) -> dict[str, "torch.Tensor"]:
+        r"""Regularizes skeletons by encoding with VQVAE."""
+        results = []
+        all_grid_shapes = []
+        vqvae_encoder = getattr(processor, "skeleton_processor", None)
+        if vqvae_encoder is None:
+            raise ValueError("Skeleton processor (VQVAEEncoder) not found.")
+
+        for skeleton in skeletons:
+            if isinstance(skeleton, str):
+                data = np.load(skeleton)
+            elif isinstance(skeleton, np.ndarray):
+                data = skeleton
+            else:
+                raise ValueError("Unsupported skeleton input type.")
+
+            data = torch.from_numpy(data).float().unsqueeze(0)
+            encoded_skeleton_indices, quant_t_shape = vqvae_encoder.encode(data)
+
+            # 3. 从返回的形状中提取 t, h, w
+            #    根据 vqvae.py, 输入是 [B, C, T, J], T是时间/帧, J是关节
+            #    所以 t=1 (单个序列), h=T_quant, w=J_quant
+            #    quant_t_shape is [B, C, T_quant, J_quant]
+            _, _, t_quant, j_quant = quant_t_shape
+            grid_shape = [1, t_quant, j_quant] # [t, h, w]
+            all_grid_shapes.append(grid_shape)
+
+            results.append(encoded_skeleton_indices.squeeze(0).reshape(-1)) # 先去掉batch_size维度再将时空空间压缩成一维
+
+        return {
+            "skeleton_indices": torch.cat(results, dim=0),
+            "skeleton_grid_shapes": all_grid_shapes, # <-- 4. 返回形状列表
+            }
+    #########################################################################################
+
+
     def _get_mm_inputs(
         self,
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         processor: "MMProcessor",
         imglens: Optional[list[int]] = None,
     ) -> dict[str, "torch.Tensor"]:
@@ -386,6 +462,20 @@ class MMPluginMixin:
                 )
             )
             mm_inputs["feature_attention_mask"] = mm_inputs.pop("attention_mask", None)  # prevent conflicts
+        
+        # ADDED BY BRADLEY 250827 ###############################################################
+        if len(skeletons) != 0: # New skeleton processing
+            skeleton_data = self._regularize_skeletons(skeletons, processor)
+
+            # 1. 从返回的字典中提取 grid_shapes
+            skeleton_grid_shapes = skeleton_data.pop("skeleton_grid_shapes")
+            
+            # 2. 将形状列表转换为 Qwen-VL 需要的 Tensor 格式
+            #    每个 shape 应该是 [t, h, w]
+            mm_inputs["skeleton_grid_thw"] = torch.tensor(skeleton_grid_shapes, dtype=torch.long)
+
+            mm_inputs.update(skeleton_data)
+        #########################################################################################
 
         return mm_inputs
 
@@ -398,10 +488,11 @@ class BasePlugin(MMPluginMixin):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         processor: Optional["MMProcessor"],
     ) -> list[dict[str, str]]:
         r"""Pre-process input messages before tokenization for VLMs."""
-        self._validate_input(processor, images, videos, audios)
+        self._validate_input(processor, images, videos, audios, skeletons)  # MODIFIED BY BRADLEY 250827
         return messages
 
     def process_token_ids(
@@ -411,11 +502,12 @@ class BasePlugin(MMPluginMixin):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         tokenizer: "PreTrainedTokenizer",
         processor: Optional["MMProcessor"],
     ) -> tuple[list[int], Optional[list[int]]]:
         r"""Pre-process token ids after tokenization for VLMs."""
-        self._validate_input(processor, images, videos, audios)
+        self._validate_input(processor, images, videos, audios, skeletons)  # MODIFIED BY BRADLEY 250827
         return input_ids, labels
 
     def get_mm_inputs(
@@ -423,9 +515,11 @@ class BasePlugin(MMPluginMixin):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         imglens: list[int],
         vidlens: list[int],
         audlens: list[int],
+        skel_lens: list[int], # ADDED BY BRADLEY 250827
         batch_ids: list[list[int]],
         processor: Optional["MMProcessor"],
     ) -> dict[str, Union[list[int], "torch.Tensor"]]:
@@ -442,8 +536,8 @@ class BasePlugin(MMPluginMixin):
             processor: a processor for pre-processing images and videos
 
         """
-        self._validate_input(processor, images, videos, audios)
-        return self._get_mm_inputs(images, videos, audios, processor)
+        self._validate_input(processor, images, videos, audios, skeletons)  # MODIFIED BY BRADLEY 250827
+        return self._get_mm_inputs(images, videos, audios, skeletons, processor)    # MODIFIED BY BRADLEY 250827
 
 
 @dataclass
@@ -1456,6 +1550,7 @@ class Qwen2VLPlugin(BasePlugin):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         processor: "MMProcessor",
     ) -> dict[str, "torch.Tensor"]:
         image_processor: BaseImageProcessor = getattr(processor, "image_processor", None)
@@ -1481,6 +1576,20 @@ class Qwen2VLPlugin(BasePlugin):
             if "second_per_grid_ts" in processor.model_input_names:
                 mm_inputs["second_per_grid_ts"] = [temporal_patch_size / fps for fps in video_data["fps_per_video"]]
 
+        # ADDED BY BRADLEY 250827 ###############################################################
+        if len(skeletons) != 0: # New skeleton processing
+            skeleton_data = self._regularize_skeletons(skeletons, processor)
+
+            # 1. 从返回的字典中提取 grid_shapes
+            skeleton_grid_shapes = skeleton_data.pop("skeleton_grid_shapes")
+            
+            # 2. 将形状列表转换为 Qwen-VL 需要的 Tensor 格式
+            #    每个 shape 应该是 [t, h, w]
+            mm_inputs["skeleton_grid_thw"] = torch.tensor(skeleton_grid_shapes, dtype=torch.long)
+
+            mm_inputs.update(skeleton_data)
+        #########################################################################################
+
         return mm_inputs
 
     @override
@@ -1490,22 +1599,26 @@ class Qwen2VLPlugin(BasePlugin):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         processor: Optional["MMProcessor"],
     ) -> list[dict[str, str]]:
-        self._validate_input(processor, images, videos, audios)
-        self._validate_messages(messages, images, videos, audios)
+        self._validate_input(processor, images, videos, audios, skeletons)  # MODIFIED BY BRADLEY 250827
+        self._validate_messages(messages, images, videos, audios, skeletons)  # MODIFIED BY BRADLEY 250827
         num_image_tokens, num_video_tokens = 0, 0
+        num_skeleton_tokens = 0 # ADDED BY BRADLEY 250827
         messages = deepcopy(messages)
         image_processor: BaseImageProcessor = getattr(processor, "image_processor")
 
         merge_length: int = getattr(image_processor, "merge_size") ** 2
         if self.expand_mm_tokens:
-            mm_inputs = self._get_mm_inputs(images, videos, audios, processor)
+            mm_inputs = self._get_mm_inputs(images, videos, audios, skeletons, processor)   # MODIFIED BY BRADLEY 250827
             image_grid_thw = mm_inputs.get("image_grid_thw", [])
             video_grid_thw = mm_inputs.get("video_grid_thw", [])
+            skeleton_grid_thw = mm_inputs.get("skeleton_grid_thw", [])  # ADDED BY BRADLEY 250828
         else:
             image_grid_thw = [None] * len(images)
             video_grid_thw = [None] * len(videos)
+            skeleton_grid_thw = [None] * len(skeletons)  # ADDED BY BRADLEY 250828
 
         for message in messages:
             content = message["content"]
@@ -1522,6 +1635,31 @@ class Qwen2VLPlugin(BasePlugin):
                     VIDEO_PLACEHOLDER, f"<|vision_start|>{self.video_token * video_seqlen}<|vision_end|>", 1
                 )
                 num_video_tokens += 1
+
+            # ADDED BY BRADLEY 250827 ###############################################################
+            while SKELETON_PLACEHOLDER in content: # New
+                # skeleton_seqlen = skeleton_grid_thw[num_skeleton_tokens].prod() // merge_length if self.expand_mm_tokens else 1
+                # For skeletons, we do not merge, so we remove `// merge_length`. 需要与 get_rope_indedx (extras_byBrad/get_rope_index.py) 中的 spatial merge 逻辑保持一致
+                skeleton_seqlen = skeleton_grid_thw[num_skeleton_tokens].prod() if self.expand_mm_tokens else 1
+                content = content.replace(
+                    SKELETON_PLACEHOLDER, f"<|skel_start|>{self.skeleton_token * skeleton_seqlen}<|skel_end|>", 1
+                )
+                num_skeleton_tokens += 1
+
+                # 以下是另一种思路的实现
+                # if self.expand_mm_tokens:
+                #     # Get the skeleton indices and convert to a token string
+                #     skeleton_indices = mm_inputs["skeleton_indices"]
+                    
+                #     skeleton_token_str = "".join([SKELETON_TOKEN_BASE.format(i) for i in skeleton_indices])
+                #     content = content.replace(
+                #         SKELETON_PLACEHOLDER, f"<|skel_start|>{skeleton_token_str}<|skel_end|>", 1,
+                #     )
+                # else:
+                #     content = content.replace(SKELETON_PLACEHOLDER, self.skeleton_token, 1)
+
+                # num_skeleton_tokens += 1
+            #########################################################################################
 
             message["content"] = content
 
@@ -1904,9 +2042,10 @@ def get_mm_plugin(
     image_token: Optional[str] = None,
     video_token: Optional[str] = None,
     audio_token: Optional[str] = None,
+    skeleton_token: Optional[str] = None, # ADDED BY BRADLEY 250827
 ) -> "BasePlugin":
     r"""Get plugin for multimodal inputs."""
     if name not in PLUGINS:
         raise ValueError(f"Multimodal plugin `{name}` not found.")
 
-    return PLUGINS[name](image_token, video_token, audio_token)
+    return PLUGINS[name](image_token, video_token, audio_token, skeleton_token) # MODIFIED BY BRADLEY 250827
