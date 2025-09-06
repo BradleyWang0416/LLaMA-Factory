@@ -715,12 +715,20 @@
     },
     "folder": "python"
   },
-  "custom_dataset_byBrad": {
-    "file_name": "custom_dataset_byBrad.jsonl",
+  "custom_dataset_byBrad_vid2skel_train": {
+    "file_name": "custom_dataset_byBrad_vid2skel_train.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "conversations",
-      "images": "images",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "custom_dataset_byBrad_vid2skel_test": {
+    "file_name": "custom_dataset_byBrad_vid2skel_test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
       "videos": "videos",
       "skeletons": "skeletons"
     }

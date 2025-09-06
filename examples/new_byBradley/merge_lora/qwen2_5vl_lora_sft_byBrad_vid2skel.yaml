@@ -1,0 +1,21 @@
+### model
+model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
+adapter_name_or_path: saves/qwen2_5vl-7b_byBrad_vid2skel/lora/sft/checkpoint-18000
+template: qwen2_vl
+trust_remote_code: true
+
+
+
+
+export_dir: saves/qwen2_5vl-7b_byBrad_vid2skel/merge_lora/checkpoint-18000
+export_size: 5
+export_device: cpu  # choices: [cpu, auto]
+export_legacy_format: false
+
+
+
+
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+resize_vocab: true
+codebook_size: 8192
