@@ -16,6 +16,9 @@
 # limitations under the License.
 
 from typing import TYPE_CHECKING, Optional
+import re
+import numpy as np
+import torch
 
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
@@ -50,7 +53,6 @@ def run_sft(
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)  # <class 'peft.peft_model.PeftModelForCausalLM'>
-
     if getattr(model, "is_quantized", False) and not training_args.do_train:
         setattr(model, "_hf_peft_config_loaded", True)  # hack here: make model compatible with prediction
 
@@ -65,6 +67,16 @@ def run_sft(
         **tokenizer_module,
     )
 
+    """Debug model and data_collator
+    from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLModel, Qwen2_5_VLPreTrainedModel, Qwen2_5_VLTextModel
+    from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
+    from peft.tuners.lora.model import LoraModel
+    from peft.peft_model import PeftModelForCausalLM
+    _ = data_collator([dataset_module['train_dataset'][0], dataset_module['train_dataset'][1]])
+    from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLDecoderLayer
+    from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
+    """
+    
     # Metric utils
     metric_module = {}
     if training_args.predict_with_generate:
@@ -125,11 +137,165 @@ def run_sft(
 
     # Predict
     if training_args.do_predict:
+
+
+
+
+        from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+        from safetensors.torch import load_file
+        encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+        vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+        decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+        skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+        mode = 'joint3d'
+        if mode == 'joint3d':
+            ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
+        else:
+            raise NotImplementedError        
+        state_dict = load_file(ckpt_path, device="cpu")
+        skeleton_processor.load_state_dict(state_dict)
+        skeleton_processor.eval()
+        for param in skeleton_processor.parameters():
+            param.requires_grad = False
+        skeleton_processor = skeleton_processor.cuda()
+
+
+        
+
+
+        # 这段代码是为了在一个独立的样本上进行推理, 不用数据集对象包装好的样本 ###############################################################
+        new_video_frames_paths = [f"/data2/wxs/DATASETS/Human3.6M_MMPose/processed/images_fps50_cropped_192x256/S1/S1_Waiting_1.54138969/S1_Waiting_1.54138969_{img:06d}.jpg" 
+                                  for img in range(1054,1070)]
+        prompt_text = "Describe the following video <video> using text. Focus only on the actions and movements of the person."
+        prompt_text = "Describe the following video <video> using skeleton tokens. Focus only on the actions and movements of the person."
+        from PIL import Image        
+        messages = [{"role": "user", "content": [{"type": "text", "text": prompt_text}]}]
+        video_frames = [Image.open(p).convert("RGB") for p in new_video_frames_paths]
+        messages[0]["content"].insert(1, {"type": "image", "content": video_frames})
+        inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_tensors="pt", return_dict=True).to(model.device)
+        with torch.no_grad():
+            custom_predict_ids = model.generate(**inputs, **gen_kwargs)
+        input_token_len = inputs["input_ids"].shape[1]
+        custom_predict_text = tokenizer.decode(custom_predict_ids[0, input_token_len:], skip_special_tokens=False)
+        custom_predict_text = custom_predict_text.replace('<|endoftext|>', '')
+
+        custom_predict_motion_id = extract_skeleton_tokens(custom_predict_text)
+        try:
+            custom_predict_motion_id = np.array(custom_predict_motion_id)
+            custom_predict_motion_id = torch.from_numpy(custom_predict_motion_id).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
+            custom_predict_motion = skeleton_processor.decode(custom_predict_motion_id).squeeze(0).cpu().numpy()  # (T, 17, 3)
+
+            import sys
+            sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+            from lib.utils.viz_skel_seq import viz_skel_seq_anim
+
+            # viz_skel_seq_anim({'pred': custom_predict_motion}, fs=0.5, if_print=False)
+            # viz_skel_seq_anim({'pred': custom_predict_motion}, fs=0.5, if_print=True, fig_title=f"custom_sample", file_folder='.', file_name=f'custom_sample')
+        except:
+            print(f'[Custom Sample] shape mismatch: {[len(tmp) for tmp in custom_predict_motion_id]}. Skipping this sample')
+        ################################################################################################################################
+
+
+
+
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
         predict_results = trainer.predict(dataset_module["eval_dataset"], metric_key_prefix="predict", **gen_kwargs)
+        # predict_results[0]: predictions. (10, 1133)
+        # predict_results[1]: label_ids. (10, 96)
+
+        MOTION_LABEL = []
+        MOTION_PRED = []
+
+        for sample_id in range(predict_results.predictions.shape[0]):
+            sample_prediction = predict_results.predictions[sample_id]  # (1133,)
+            sample_label = predict_results.label_ids[sample_id] # (96,)
+
+            text_prediction = tokenizer.decode(sample_prediction[sample_prediction != -100], skip_special_tokens=False)
+            text_prediction = text_prediction.replace('<|endoftext|>', '')
+            text_label = tokenizer.decode(sample_label[sample_label != -100], skip_special_tokens=False)
+
+
+            motion_id_prediction = extract_skeleton_tokens(text_prediction)
+            motion_id_label = extract_skeleton_tokens(text_label)
+
+
+            motion_id_label = np.array(motion_id_label)
+            motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
+            motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
+
+            try:
+                motion_id_prediction = np.array(motion_id_prediction)
+                motion_id_prediction = torch.from_numpy(motion_id_prediction).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
+                motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
+
+                MOTION_LABEL.append(motion_label)
+                MOTION_PRED.append(motion_prediction)
+                continue
+
+                import sys
+                sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+                from lib.utils.viz_skel_seq import viz_skel_seq_anim
+
+                viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
+                # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=True, fig_title=f"{sample_id}", file_folder='.', file_name=f'{sample_id:06d}')
+
+                
+            except:
+                print(f'[SampleID {sample_id}] shape mismatch: {[len(tmp) for tmp in motion_prediction]}. Skipping this sample')
+                continue
+
+
+        MOTION_LABEL=np.stack(MOTION_LABEL,axis=0)        # [N,T,17,3]
+        MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
+
+        mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
+                                   - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
+        mpjpe_all = mpjpe_all * 1000
+
+
+
+
         trainer.log_metrics("predict", predict_results.metrics)
         trainer.save_metrics("predict", predict_results.metrics)
         trainer.save_predictions(dataset_module["eval_dataset"], predict_results, generating_args.skip_special_tokens)
 
     # Create model card
     create_modelcard_and_push(trainer, model_args, data_args, training_args, finetuning_args)
+
+
+
+def extract_skeleton_tokens(text_label: str) -> list[list[int]]:
+    """
+    从包含骨架token的字符串中提取数字索引，并根据<|frame_break|>进行分组。
+
+    Args:
+        text_label: 形如 '<|skel_start|><skel_3808>...<|frame_break|>...' 的字符串。
+
+    Returns:
+        一个嵌套列表，每个子列表包含一帧中的所有骨架token的数字索引。
+        例如: [[3808, 4386, ...], [8055, 1996, ...], ...]
+    """
+    # 1. 根据 <|frame_break|> 分割字符串，得到每一帧的字符串片段
+    frame_strings = text_label.split('<|frame_break|>')
+
+    all_frames_indices = []
+    
+    # 2. 定义用于匹配 <|skel_{i}|> 中数字的正则表达式
+    #    - <\|skel_  匹配字面量 '<|skel_' (需要转义 '|')
+    #    - (\d+)     匹配并捕获一个或多个数字 (这就是我们想要的数字)
+    #    - \|>       匹配字面量 '|>'
+    pattern = re.compile(r'<skel_(\d+)>')
+
+    # 3. 遍历每一帧的字符串片段
+    for frame_str in frame_strings:
+        # 4. 使用 findall 找到所有匹配项的捕获组 (即所有数字)
+        indices_as_strings = pattern.findall(frame_str)
+        
+        # 5. 将字符串列表转换为整数列表
+        indices_as_integers = [int(index) for index in indices_as_strings]
+        
+        # 6. 如果列表不为空，则将其添加到最终结果中
+        if indices_as_integers:
+            all_frames_indices.append(indices_as_integers)
+            
+    return all_frames_indices
