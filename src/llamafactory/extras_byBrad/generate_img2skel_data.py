@@ -50,11 +50,13 @@ def img_to_skel():
 
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
     load_image_source_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl"
+    load_text_source_file = ""
 
     skeleton_processor = prepare_vqvae(mode='joint3d')
-    img2skel_dataset = SkeletonDataset(num_frames=num_frames, 
-                              load_data_file=load_data_file, load_image_source_file=load_image_source_file, 
-                              data_mode='joint3d', designated_split=designated_split)
+    img2skel_dataset = SkeletonDataset(num_frames=num_frames, data_mode='joint3d', designated_split=designated_split,
+                                       load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
+                                       return_extra=[['image']],
+                                       )
     img2skel_dataloader = torch.utils.data.DataLoader(img2skel_dataset, batch_size=64, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
     
     POSES = []
@@ -120,6 +122,82 @@ def img_to_skel():
             f.write(json.dumps(item) + '\n')
 
 
+def text_to_skel():
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/text_to_skel/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad_text2skel_{designated_split}.jsonl'
+
+    load_data_file = "/data2/wxs/DATASETS/AMASS_ByBradley/"
+    load_image_source_file = ""
+    load_text_source_file = "/data2/wxs/DATASETS/AMASS_ByBradley/retrieved_text_from_humanml3d.pkl"
+
+    skeleton_processor = prepare_vqvae(mode='joint3d')
+    text2skel_dataset = SkeletonDataset(num_frames=num_frames, data_mode='joint3d', designated_split=designated_split,
+                                       load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
+                                       return_extra=[['text']],
+                                       )
+    img2skel_dataloader = torch.utils.data.DataLoader(text2skel_dataset, batch_size=64, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+    
+    POSES = []
+    CODEBOOK_INDICES = []
+    QUANT_SHAPES = []
+    IMAGES = []
+    for batch in tqdm(img2skel_dataloader):
+        pose_seq, img_src = batch
+        # pose_seq: (B,T,17,3)
+        # img_src: B-length list of T-length lists. img_src[b][t] is a str
+        pose_seq = pose_seq.cuda()
+        with torch.no_grad():
+            codebook_indices, quant_shape = skeleton_processor.encode(pose_seq)
+        codebook_indices = codebook_indices.cpu().numpy()   # (B, quant_t, 17). typically, quant_t = T//4
+        quant_shape = np.array(quant_shape[1:])[None].repeat(quant_shape[0],0) # (B,3)
+
+        POSES.append(pose_seq.cpu().numpy())
+        CODEBOOK_INDICES.append(codebook_indices)
+        QUANT_SHAPES.append(quant_shape)
+        IMAGES = IMAGES + img_src
+    POSES = np.concatenate(POSES, axis=0)                      # (N, T, 17, 3)
+    CODEBOOK_INDICES = np.concatenate(CODEBOOK_INDICES, axis=0)  # (N, quant_t, 17)
+    QUANT_SHAPES = np.concatenate(QUANT_SHAPES, axis=0)          # (N, 3)
+    assert CODEBOOK_INDICES.shape[0] == QUANT_SHAPES.shape[0] == len(IMAGES)
+
+    jsonl_data = []
+
+    for sample_id in tqdm(range(len(IMAGES))):
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        pose_save_path = f"{save_path}/skeleton_pose3d"
+        pose_save_file = os.path.join(pose_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(pose_save_path): 
+            os.makedirs(pose_save_path)
+        pose = POSES[sample_id]                         # (T, 17, 3)
+        np.save(pose_save_file, pose)
+
+        codebook_index_save_path = f"{save_path}/skeleton_code"
+        codebook_index_save_file = os.path.join(codebook_index_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(codebook_index_save_path): 
+            os.makedirs(codebook_index_save_path)
+        codebook_index = CODEBOOK_INDICES[sample_id]   # (quant_t, 17)
+        np.save(codebook_index_save_file, codebook_index)
+
+        quant_shape_save_path = f"{save_path}/skeleton_quant_shape"
+        quant_shape_save_file = os.path.join(quant_shape_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(quant_shape_save_path): 
+            os.makedirs(quant_shape_save_path)
+        quant_shape = QUANT_SHAPES[sample_id]           # (3)
+        np.save(quant_shape_save_file, quant_shape)
+
+        task_item = easydict.EasyDict(TASK_TEMPLATE)
+        chosen_prompt = random.choice(PROMPT_TEMPLATES)
+        task_item.conversations[0]["value"] = chosen_prompt
+        task_item.videos = [IMAGES[sample_id]]
+        task_item.skeletons = [codebook_index_save_file]
+
+        jsonl_data.append(task_item)
+
+    with open(jsonl_save_file, 'w') as f:
+        for item in jsonl_data:
+            f.write(json.dumps(item) + '\n')
 
         
 def img_to_text():
@@ -189,18 +267,26 @@ def generate_pseudo_labels(image_sequences: list[list[str]]) -> list[str]:
     return captions
    
 class SkeletonDataset(torch.utils.data.Dataset):
-    def __init__(self, num_frames=16, load_data_file="", load_image_source_file="", data_mode="joint3d", designated_split='train',
-                 use_cropped_image=True, image_shape='192x256'):
-        assert len(load_data_file.split(',')) == len(load_image_source_file.split(','))
+    def __init__(self, num_frames=16, sample_stride=1, data_mode="joint3d", designated_split='train',
+                 load_data_file="", load_image_source_file="", load_text_source_file="",
+                 return_extra=[['image'], ['text']],                 
+                 # e.g.,
+                 # lode_data_file='<h36m_path>,<amass_path>'
+                 # load_image_source_file='<h36m_img_path>,'
+                 # load_text_source_file=',<amass_text_path>'
+                 # return_extra=[['image'], ['text']]
+                 use_cropped_image=True, image_shape='192x256',
+                 ):
+        assert len(load_data_file.split(',')) == len(load_image_source_file.split(',')) == len(return_extra)
 
         self.num_frames = num_frames
 
         data_dict = {}
         data_list = []
-        for dt_file, img_src_file in zip(load_data_file.split(','), load_image_source_file.split(',')):
+        for dt_file, img_src_file, txt_src_file, extra_modality_list in zip(load_data_file.split(','), load_image_source_file.split(','), load_text_source_file.split(','), return_extra):
             datareader_config_unsplit = {'dt_file': dt_file,}
             datareader_config_split = {'chunk_len': num_frames,
-                                       'sample_stride': 1, 
+                                       'sample_stride': sample_stride, 
                                        'data_stride': num_frames,
                                        'read_confidence': False}
             datareader_config = {**datareader_config_unsplit, **datareader_config_split}
@@ -210,29 +296,49 @@ class SkeletonDataset(torch.utils.data.Dataset):
 
             read_func = datareader.read_2d if data_mode == "joint2d" else datareader.read_3d_image
             data_npy = read_func(designated_split=designated_split)     # (N,17,3)
-            img_list = joblib.load(img_src_file)[designated_split]
-            valid_indices = []
-            for frame_id, img_path in enumerate(img_list):
-                if img_path is None:
-                    continue
-                else:
-                    valid_indices.append(frame_id)
+
+            data_dict[dt_file] = {'poses': data_npy}
+
+            if 'image' in extra_modality_list:
+                img_list = joblib.load(img_src_file)[designated_split]
+                img_list = img_list[::sample_stride]
+                valid_img_indices = []
+                for frame_id, img_path in enumerate(img_list):
+                    if img_path is None:
+                        continue
+                    valid_img_indices.append(frame_id)
                     if use_cropped_image:
                         img_list[frame_id] = img_path.replace('images_fps50', f'images_fps50_cropped_{image_shape}')
-            # if use_cropped_image:
-            #     img_list = [img_path.replace('images_fps50', f'images_fps50_cropped_{image_shape}') for img_path in img_list if img_path is not None]
+
+                data_npy = data_npy[valid_img_indices]
+                img_list = np.array(img_list)[valid_img_indices]
+                assert len(img_list) == data_npy.shape[0]
             
-            data_npy = data_npy[valid_indices]
-            img_list = np.array(img_list)[valid_indices]
+                data_dict[dt_file]['img_src'] = img_list
 
-            assert len(img_list) == data_npy.shape[0]
+                datareader.dt_dataset[designated_split]['source'] = np.array(datareader.dt_dataset[designated_split]['source'])[valid_img_indices].tolist()
 
-            data_dict[dt_file] = {
-                'poses': data_npy,
-                'img_src': img_list
-            }
+            if 'text' in extra_modality_list:
+                data_sources = datareader.read_source(designated_split=designated_split)
+                text_data = joblib.load(txt_src_file)[designated_split]
 
-            datareader.dt_dataset[designated_split]['source'] = np.array(datareader.dt_dataset[designated_split]['source'])[valid_indices].tolist()
+                valid_text_indices = []
+                for frame_id, source_str in enumerate(data_sources):
+                    video_info, cam_info, frame_info = source_str.split('_')
+                    video_id = int(video_info.replace('vid',''))
+                    frame_indices_wrt_amass_npz = text_data[video_id]['frame_indices_wrt_amass_npz']
+                    text_info_list = text_data[video_id]['humanml3d']
+                    if (text_info_list) == 0:
+                        continue
+                    for text_info in text_info_list:
+                        caption_path, valid_frame_indices_wrt_amass_npz = text_info
+
+
+
+
+
+
+
             split_id = datareader.get_split_id(designated_split=designated_split)   # 这里是用 unsplit_data 中的 'source' 来划分 split_id, 所以也要利用 valid_indices 作修改
             data_list.extend(zip([dt_file]*len(split_id), split_id))
 
@@ -275,5 +381,5 @@ def prepare_vqvae(mode='joint3d'):
 
 
 if __name__ == "__main__":
-    # img_to_text()
-    img_to_skel()
+    text_to_skel()
+    # img_to_skel()
