@@ -7,6 +7,7 @@ from tqdm import tqdm
 from PIL import Image
 import json 
 import random
+import codecs as cs
 
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
 from safetensors.torch import load_file
@@ -17,32 +18,57 @@ from funcs_and_classes.Non_AR.dataset.ver13_ICL import DataReaderMesh
 from lib.utils.utils_data import split_clips
 
 num_frames=16
-designated_split='test'
+designated_split='train'
 
-PROMPT_TEMPLATES = [
-    "Describe the motion of the person in this video <video> using skeleton tokens. Focus on the motion of the whole body and the movement of body parts and joints over time.",
-    "Generate the skeleton sequence corresponding to the person's movement in the video <video>.",
-    "Transcribe the actions in the video <video> into a sequence of skeleton tokens.",
-    "Output the skeleton tokens that represent the pose changes of the person shown in <video>.",
-    "Please provide the skeletal representation for the movement in the video <video>.",
-    "What is the skeleton token sequence for the person in <video>?",
-    # 问题式
-    "Can you show me the pose sequence for the person's movement in <video>?",
-    "What would the motion capture data for the video <video> look like?",
-    # 角色扮演式
-    "You are a motion analysis expert. Analyze the video <video> and output the corresponding sequence of motion data.",
-    # 填充式
-    "Here is a video of a person moving: <video>. The corresponding structural representation is:",
-    # 零样本/概念泛化
-    "Analyze the person's movement in <video> and represent it structurally.",
-]
+PROMPT_TEMPLATES = {
+    'img_to_skel': [
+        "Describe the motion of the person in this video <video> using skeleton tokens. Focus on the motion of the whole body and the movement of body parts and joints over time.",
+        "Generate the skeleton sequence corresponding to the person's movement in the video <video>.",
+        "Transcribe the actions in the video <video> into a sequence of skeleton tokens.",
+        "Output the skeleton tokens that represent the pose changes of the person shown in <video>.",
+        "Please provide the skeletal representation for the movement in the video <video>.",
+        "What is the skeleton token sequence for the person in <video>?",
+        # 问题式
+        "Can you show me the pose sequence for the person's movement in <video>?",
+        "What would the motion capture data for the video <video> look like?",
+        # 角色扮演式
+        "You are a motion analysis expert. Analyze the video <video> and output the corresponding sequence of motion data.",
+        # 填充式
+        "Here is a video of a person moving: <video>. The corresponding structural representation is:",
+        # 零样本/概念泛化
+        "Analyze the person's movement in <video> and represent it structurally.",
+    ],
+    'skel_pred': [
+        # 直接指令式
+        "Continue the motion sequence provided in <skeleton>.",
+        "Predict the future motion based on the provided skeleton sequence <skeleton>.",
+        "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>.",
+        # 问题式
+        "Given the motion <skeleton>, what happens next?",
+        "What are the subsequent skeleton tokens for this motion sequence <skeleton>?",
+        # 角色扮演式
+        "You are a motion prediction expert. Analyze the past motion <skeleton> and output the most likely future motion.",
+        # 填充式
+        "Here is the beginning of a motion sequence: <skeleton>. The continuation of the motion is:",
+        "Past motion: <skeleton>. Future motion:",
+    ]
+}
+
+
 
 TASK_TEMPLATE = {
-    "conversations": [{"from": "human", "value": None},
-                      {"from": "gpt", "value": "<skeleton>"}],
-    "videos": [],
-    "skeletons": []
+    'img_to_skel': {
+        "conversations": [{"from": "human", "value": None},
+                          {"from": "gpt", "value": "<skeleton>"}],
+        "videos": [],
+        "skeletons": []
+    },
+    'skel_pred': {
+        "conversations": [{"from": "human", "value": None},
+                          {"from": "gpt", "value": "<skeleton>"}],
+        "skeletons": []
     }
+}
 
 def img_to_skel():
     save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/{designated_split}'
@@ -109,11 +135,114 @@ def img_to_skel():
         quant_shape = QUANT_SHAPES[sample_id]           # (3)
         np.save(quant_shape_save_file, quant_shape)
 
-        task_item = easydict.EasyDict(TASK_TEMPLATE)
-        chosen_prompt = random.choice(PROMPT_TEMPLATES)
+        task_item = easydict.EasyDict(TASK_TEMPLATE['img_to_skel'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['img_to_skel'])
         task_item.conversations[0]["value"] = chosen_prompt
         task_item.videos = [IMAGES[sample_id]]
         task_item.skeletons = [codebook_index_save_file]
+
+        jsonl_data.append(task_item)
+
+    with open(jsonl_save_file, 'w') as f:
+        for item in jsonl_data:
+            f.write(json.dumps(item) + '\n')
+
+
+def skel_pred():
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad_skelPred_{designated_split}.jsonl'
+
+    load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
+    load_image_source_file = ""
+    load_text_source_file = ""
+
+    skeleton_processor = prepare_vqvae(mode='joint3d')
+    skel_dataset = SkeletonDataset(num_frames=num_frames * 2, data_mode='joint3d', designated_split=designated_split,
+                                       load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
+                                       return_extra=[[]],
+                                       )
+    skel_dataloader = torch.utils.data.DataLoader(skel_dataset, batch_size=64, shuffle=False, num_workers=0)
+    
+    POSES = {'history': [], 'future': []}
+    CODEBOOK_INDICES = {'history': [], 'future': []}
+    QUANT_SHAPES = {'history': [], 'future': []}
+    for batch in tqdm(skel_dataloader):
+        pose_seq = batch
+        # pose_seq: (B,2T,17,3)
+        # img_src: B-length list of T-length lists. img_src[b][t] is a str
+        pose_seq = pose_seq.cuda()
+        pose_seq_history, pose_seq_future = pose_seq.chunk(2, dim=1)  # (B,T,17,3), (B,T,17,3)
+
+        with torch.no_grad():
+            codebook_indices_history, quant_shape_history = skeleton_processor.encode(pose_seq_history)
+            codebook_indices_future, quant_shape_future = skeleton_processor.encode(pose_seq_future)
+
+        codebook_indices_history = codebook_indices_history.cpu().numpy()   # (B, quant_t, 17). typically, quant_t = T//4
+        quant_shape_history = np.array(quant_shape_history[1:])[None].repeat(quant_shape_history[0],0) # (B,3)
+        codebook_indices_future = codebook_indices_future.cpu().numpy()   # (B, quant_t, 17). typically, quant_t = T//4
+        quant_shape_future = np.array(quant_shape_future[1:])[None].repeat(quant_shape_future[0],0) # (B,3)
+
+        POSES['history'].append(pose_seq_history.cpu().numpy())
+        POSES['future'].append(pose_seq_future.cpu().numpy())
+        CODEBOOK_INDICES['history'].append(codebook_indices_history)
+        CODEBOOK_INDICES['future'].append(codebook_indices_future)
+        QUANT_SHAPES['history'].append(quant_shape_history)
+        QUANT_SHAPES['future'].append(quant_shape_future)
+    POSES = {k: np.concatenate(v, axis=0) for k, v in POSES.items()}
+    CODEBOOK_INDICES = {k: np.concatenate(v, axis=0) for k, v in CODEBOOK_INDICES.items()}
+    QUANT_SHAPES = {k: np.concatenate(v, axis=0) for k, v in QUANT_SHAPES.items()}
+    assert CODEBOOK_INDICES['history'].shape[0] == QUANT_SHAPES['history'].shape[0]
+    assert CODEBOOK_INDICES['future'].shape[0] == QUANT_SHAPES['future'].shape[0]
+
+    jsonl_data = []
+
+    for sample_id in tqdm(range(CODEBOOK_INDICES['history'].shape[0])):
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        history_pose_save_path = f"{save_path}/history/skeleton_pose3d"
+        history_pose_save_file = os.path.join(history_pose_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(history_pose_save_path): 
+            os.makedirs(history_pose_save_path)
+        future_pose_save_path = f"{save_path}/future/skeleton_pose3d"
+        future_pose_save_file = os.path.join(future_pose_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(future_pose_save_path): 
+            os.makedirs(future_pose_save_path)
+        pose_his = POSES['history'][sample_id]                         # (T, 17, 3)
+        pose_fut = POSES['future'][sample_id]                         # (T, 17, 3)
+        np.save(history_pose_save_file, pose_his)
+        np.save(future_pose_save_file, pose_fut)
+
+        history_codebook_index_save_path = f"{save_path}/history/skeleton_code"
+        history_codebook_index_save_file = os.path.join(history_codebook_index_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(history_codebook_index_save_path): 
+            os.makedirs(history_codebook_index_save_path)
+        future_codebook_index_save_path = f"{save_path}/future/skeleton_code"
+        future_codebook_index_save_file = os.path.join(future_codebook_index_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(future_codebook_index_save_path): 
+            os.makedirs(future_codebook_index_save_path)
+        codebook_index_his = CODEBOOK_INDICES['history'][sample_id]   # (quant_t, 17)
+        codebook_index_fut = CODEBOOK_INDICES['future'][sample_id]   # (quant_t, 17)
+        np.save(history_codebook_index_save_file, codebook_index_his)
+        np.save(future_codebook_index_save_file, codebook_index_fut)
+
+        history_quant_shape_save_path = f"{save_path}/history/skeleton_quant_shape"
+        history_quant_shape_save_file = os.path.join(history_quant_shape_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(history_quant_shape_save_path):
+            os.makedirs(history_quant_shape_save_path)
+        future_quant_shape_save_path = f"{save_path}/future/skeleton_quant_shape"
+        future_quant_shape_save_file = os.path.join(future_quant_shape_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(future_quant_shape_save_path):
+            os.makedirs(future_quant_shape_save_path)
+        quant_shape_his = QUANT_SHAPES['history'][sample_id]           # (3)
+        quant_shape_fut = QUANT_SHAPES['future'][sample_id]           # (3)
+        np.save(history_quant_shape_save_file, quant_shape_his)
+        np.save(future_quant_shape_save_file, quant_shape_fut)
+
+        task_item = easydict.EasyDict(TASK_TEMPLATE['skel_pred'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['skel_pred'])
+        task_item.conversations[0]["value"] = chosen_prompt
+        task_item.skeletons = [history_codebook_index_save_file, future_codebook_index_save_file]
 
         jsonl_data.append(task_item)
 
@@ -199,7 +328,7 @@ def text_to_skel():
         for item in jsonl_data:
             f.write(json.dumps(item) + '\n')
 
-        
+
 def img_to_text():
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
     source_list = joblib.load(load_data_file)['train']['source']
@@ -319,19 +448,56 @@ class SkeletonDataset(torch.utils.data.Dataset):
                 datareader.dt_dataset[designated_split]['source'] = np.array(datareader.dt_dataset[designated_split]['source'])[valid_img_indices].tolist()
 
             if 'text' in extra_modality_list:
-                data_sources = datareader.read_source(designated_split=designated_split)
+                data_sources = datareader.read_source(designated_split=designated_split)    # sampled_stride applied within read_source
                 text_data = joblib.load(txt_src_file)[designated_split]
 
-                valid_text_indices = []
+
+                valid_text_indices = {}
                 for frame_id, source_str in enumerate(data_sources):
+                    if source_str in valid_text_indices:
+                        continue
+                    
                     video_info, cam_info, frame_info = source_str.split('_')
                     video_id = int(video_info.replace('vid',''))
-                    frame_indices_wrt_amass_npz = text_data[video_id]['frame_indices_wrt_amass_npz']
+                    start_frame_wrt_60fps, end_frame_wrt_60fps = frame_info.replace('frame','').split('-')
+                    start_frame_wrt_60fps, end_frame_wrt_60fps = int(start_frame_wrt_60fps), int(end_frame_wrt_60fps)
+                    video_frame_indices_wrt_amass_npz = text_data[video_id]['frame_indices_wrt_amass_npz']
+
+                    clip_frame_indices_wrt_amass_npz = video_frame_indices_wrt_amass_npz[start_frame_wrt_60fps:end_frame_wrt_60fps+1]
+
                     text_info_list = text_data[video_id]['humanml3d']
                     if (text_info_list) == 0:
                         continue
+
+                    text_data = []
                     for text_info in text_info_list:
                         caption_path, valid_frame_indices_wrt_amass_npz = text_info
+                        with cs.open(caption_path) as f:      # 'datasets/humanml3d/texts/000002.txt'
+                            lines = f.readlines()
+                        for line in lines:      # 循环txt文件每一行
+                            line_split = line.strip().split('#')    # ['a man full-body sideways jumps to his left.', 'a/DET man/NOUN fullbody/NOUN sideways/ADV jump/VERB to/ADP his/DET left/NOUN', '0.0', '0.0']
+                            caption = line_split[0]                 # 'a man full-body sideways jumps to his left.'
+                            f_tag = float(line_split[2])
+                            to_tag = float(line_split[3])
+                            f_tag = 0.0 if np.isnan(f_tag) else f_tag
+                            to_tag = 0.0 if np.isnan(to_tag) else to_tag
+
+                            if f_tag == 0.0 and to_tag == 0.0:      # this means the text is captioning the entire sequence of corresponding motion (see official github)
+                                valid_frame_indices = valid_frame_indices_wrt_amass_npz.copy() # humanml3d fps=20
+                            else:
+                                valid_frame_indices = valid_frame_indices_wrt_amass_npz[int(f_tag * 20):int(to_tag * 20)] # humanml3d fps=20
+
+                            valid_frame_st = valid_frame_indices[0] - (valid_frame_indices[1] - valid_frame_indices[0])
+                            valid_frame_ed = valid_frame_indices[-1] + (valid_frame_indices[-1] - valid_frame_indices[-2])
+                            video_frame_indices_tmp = clip_frame_indices_wrt_amass_npz.copy()
+                            video_frame_indices_tmp = video_frame_indices_tmp[video_frame_indices_tmp >= valid_frame_st]
+                            video_frame_indices_tmp = video_frame_indices_tmp[video_frame_indices_tmp <= valid_frame_ed]
+                    
+                            if len(video_frame_indices_tmp) >= self.num_frames:
+                                text_data.append((caption, video_frame_indices_tmp))
+                        
+                    valid_text_indices[source_str] = text_data
+
 
 
 
@@ -351,9 +517,12 @@ class SkeletonDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         dt_file, slice_id = self.data_list[idx]
         poses = self.data_dict[dt_file]['poses'][slice_id]
-        img_src = self.data_dict[dt_file]['img_src'][slice_id].tolist()
-        return torch.from_numpy(poses).float(), img_src
+        if 'img_src' in self.data_dict[dt_file]:
+            img_src = self.data_dict[dt_file]['img_src'][slice_id].tolist()
+            return torch.from_numpy(poses).float(), img_src
+        return torch.from_numpy(poses).float()
     
+
 def custom_collate_fn(batch):    
     poses_list = [item[0] for item in batch]
     img_src_list = [item[1] for item in batch]
@@ -381,5 +550,6 @@ def prepare_vqvae(mode='joint3d'):
 
 
 if __name__ == "__main__":
+    # skel_pred()
     text_to_skel()
     # img_to_skel()
