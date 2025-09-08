@@ -108,7 +108,8 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             self.get_rope_func = None
 
         # ADDED BY BRADLEY 250828 ###############################################################
-        self.get_rope_func = get_rope_index  # Override with custom function
+        # 如果不用rope方案，用外语方案，则不需要这里了
+        # self.get_rope_func = get_rope_index  # Override with custom function
         #########################################################################################
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, "torch.Tensor"]:
@@ -138,11 +139,11 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             fake_messages = [{"role": "user", "content": IMAGE_PLACEHOLDER}]
             fake_images = [Image.new("RGB", (64, 64), (255, 255, 255))]
             fake_messages = self.template.mm_plugin.process_messages(
-                fake_messages, fake_images, [], [], self.processor
+                fake_messages, fake_images, [], [], [], self.processor  # MODIFIED BY BRADLEY 250902
             )
             _fake_input_ids = self.tokenizer.encode(fake_messages[0]["content"], add_special_tokens=False)
             _fake_input_ids, _ = self.template.mm_plugin.process_token_ids(
-                _fake_input_ids, None, fake_images, [], [], self.tokenizer, self.processor
+                _fake_input_ids, None, fake_images, [], [], [], self.tokenizer, self.processor  # MODIFIED BY BRADLEY 250902
             )
             fake_input_ids.extend(_fake_input_ids)
             batch_images = fake_images
@@ -165,23 +166,23 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             batch_audlens[0] = 1
 
         # ADDED BY BRADLEY 250828 ###############################################################
-        if self.template.mm_plugin.skeleton_token is not None and sum(batch_skelens) == 0:
-            # avoid process hanging in zero3/fsdp case
-            fake_messages = [{"role": "user", "content": SKELETON_PLACEHOLDER}]
-            # Create a minimal fake skeleton input, assuming it's a numpy array.
-            # The shape should be valid for your SkeletonProcessor.
-            # e.g., a single frame with 68 joints and 3 coordinates.
-            fake_skeletons = [np.zeros((16, 17, 3), dtype=np.float32)]
-            fake_messages = self.template.mm_plugin.process_messages(
-                fake_messages, [], [], [], fake_skeletons, self.processor
-            )
-            _fake_input_ids = self.tokenizer.encode(fake_messages[0]["content"], add_special_tokens=False)
-            _fake_input_ids, _ = self.template.mm_plugin.process_token_ids(
-                _fake_input_ids, None, [], [], [], fake_skeletons, self.tokenizer, self.processor
-            )
-            fake_input_ids.extend(_fake_input_ids)
-            batch_skeletons = fake_skeletons
-            batch_skelens[0] = 1
+        # if self.template.mm_plugin.skeleton_token is not None and sum(batch_skelens) == 0:
+        #     # avoid process hanging in zero3/fsdp case
+        #     fake_messages = [{"role": "user", "content": SKELETON_PLACEHOLDER}]
+        #     # Create a minimal fake skeleton input, assuming it's a numpy array.
+        #     # The shape should be valid for your SkeletonProcessor.
+        #     # e.g., a single frame with 68 joints and 3 coordinates.
+        #     fake_skeletons = [np.zeros((16, 17, 3), dtype=np.float32)]
+        #     fake_messages = self.template.mm_plugin.process_messages(
+        #         fake_messages, [], [], [], fake_skeletons, self.processor
+        #     )
+        #     _fake_input_ids = self.tokenizer.encode(fake_messages[0]["content"], add_special_tokens=False)
+        #     _fake_input_ids, _ = self.template.mm_plugin.process_token_ids(
+        #         _fake_input_ids, None, [], [], [], fake_skeletons, self.tokenizer, self.processor
+        #     )
+        #     fake_input_ids.extend(_fake_input_ids)
+        #     batch_skeletons = fake_skeletons
+        #     batch_skelens[0] = 1
         #########################################################################################
 
         if len(fake_input_ids) != 0:
@@ -217,11 +218,11 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
 
         if self.get_rope_func is not None:
             rope_index_kwargs = {
-                'self': self.model.model, # ADDED BY BRADLEY 250828
+                # 'self': self.model.model, # ADDED BY BRADLEY 250828
                 "input_ids": features["input_ids"],
                 "image_grid_thw": mm_inputs.get("image_grid_thw"),
                 "video_grid_thw": mm_inputs.get("video_grid_thw"),
-                'skeleton_grid_thw': mm_inputs.get('skeleton_grid_thw'),  # ADDED BY BRADLEY 250828
+                # 'skeleton_grid_thw': mm_inputs.get('skeleton_grid_thw'),  # ADDED BY BRADLEY 250828
                 "attention_mask": (features["attention_mask"] >= 1).float(),
             }
             if "second_per_grid_ts" in mm_inputs:  # for qwen2vl

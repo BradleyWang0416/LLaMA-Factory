@@ -1,5 +1,5 @@
 ### model
-model_name_or_path: saves/qwen2_5vl-7b_byBrad_vid2skel/merge_lora/checkpoint-18000
+model_name_or_path: saves/qwen2_5vl-7b_byBrad_vid2skel_bodypartaware/merge_lora/checkpoint-11000
 image_max_pixels: 262144
 video_max_pixels: 16384
 trust_remote_code: true

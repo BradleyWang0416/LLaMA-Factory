@@ -399,7 +399,65 @@ class SKEL_VQVAE(nn.Module):
             x, loss, perplexity = self.encdec_slice_frames(x, frame_batch_size=8, encdec=self.encoder, return_vq=return_vq)
             return x, loss, perplexity
         
-    def decode(self, x, return_vq=False):
-        x = self.encdec_slice_frames(x, frame_batch_size=2, encdec=self.decoder, return_vq=return_vq)
-        x = x.permute(0, 2, 3, 1)
-        return x
+    def get_code_from_indices(self, indices):
+        """
+        [NEW HELPER METHOD]
+        Converts a tensor of indices into the corresponding codebook vectors.
+        This is the core "dequantization" step.
+        
+        Args:
+            indices (torch.Tensor): A tensor of indices, shape [B, T_quant, J_quant].
+        
+        Returns:
+            torch.Tensor: The corresponding codebook vectors, shape [B, C, T_quant, J_quant].
+        """
+        if not hasattr(self, 'vq'):
+            raise ValueError("VectorQuantizer (self.vq) is not available.")
+        
+        # Flatten the indices tensor for embedding lookup
+        # Shape: [B, T_quant, J_quant] -> [B * T_quant * J_quant]
+        flat_indices = indices.view(-1)
+        
+        # Use the VQ's dequantize method (which is essentially F.embedding)
+        # Shape: [B * T_quant * J_quant] -> [B * T_quant * J_quant, C]
+        dequantized_vectors = self.vq.dequantize(flat_indices)
+        
+        # Reshape the vectors back to the 4D tensor format expected by the decoder
+        batch_size, t_quant, j_quant = indices.shape
+        code_dim = dequantized_vectors.shape[-1]
+        
+        # Shape: [B * T_quant * J_quant, C] -> [B, T_quant, J_quant, C]
+        vectors_reshaped = dequantized_vectors.view(batch_size, t_quant, j_quant, code_dim)
+        
+        # Permute to the [B, C, T, J] format for convolutional layers
+        # Shape: [B, T_quant, J_quant, C] -> [B, C, T_quant, J_quant]
+        return vectors_reshaped.permute(0, 3, 1, 2).contiguous()
+
+    def decode(self, indices: torch.Tensor):
+        """
+        [REWRITTEN METHOD]
+        Decodes a batch of indices into the reconstructed skeleton data.
+        
+        Args:
+            indices (torch.Tensor): The code indices to decode, with shape [B, T_quant, J_quant].
+        
+        Returns:
+            torch.Tensor: The reconstructed skeleton data, with shape [B, T, J, C].
+        """
+        # 1. Convert indices to codebook vectors
+        # Input: [B, T_quant, J_quant], Output: [B, C, T_quant, J_quant]
+        quantized_vectors = self.get_code_from_indices(indices)
+        
+        # 2. Decode the vectors using the decoder network
+        # The `encdec_slice_frames` is used here to handle potentially long sequences.
+        # Input: [B, C, T_quant, J_quant], Output: [B, C, T, J]
+        reconstructed_x, _, _, _ = self.encdec_slice_frames(
+            quantized_vectors, 
+            frame_batch_size=2,  # This can be adjusted based on memory
+            encdec=self.decoder, 
+            return_vq=False
+        )
+        
+        # 3. Permute the output to the standard [B, T, J, C] format
+        # Input: [B, C, T, J], Output: [B, T, J, C]
+        return reconstructed_x.permute(0, 2, 3, 1).contiguous()

@@ -1,9 +1,11 @@
-CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_vid2skel.yaml
+CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_all3.yaml
 
-CUDA_VISIBLE_DEVICES=5,6 \
+CUDA_VISIBLE_DEVICES=1,2,5,6 \
+    nohup \
     llamafactory-cli \
     train \
-    $CONFIG
+    $CONFIG \
+    > exp_all3.log &
 
 # ALLOW_EXTRA_ARGS=true \
 # CUDA_VISIBLE_DEVICES=6 \

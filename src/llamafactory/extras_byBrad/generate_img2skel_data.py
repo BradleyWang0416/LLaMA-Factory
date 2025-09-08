@@ -7,6 +7,7 @@ from tqdm import tqdm
 from PIL import Image
 import json 
 import random
+random.seed(0)
 import codecs as cs
 
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
@@ -16,11 +17,10 @@ import sys
 sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
 from funcs_and_classes.Non_AR.dataset.ver13_ICL import DataReaderMesh
 from lib.utils.utils_data import split_clips
+from lib.utils.viz_skel_seq import viz_skel_seq_anim
 
-num_frames=16
-designated_split='train'
 
-PROMPT_TEMPLATES = {
+PROMPT_TEMPLATES_V0 = {
     'img_to_skel': [
         "Describe the motion of the person in this video <video> using skeleton tokens. Focus on the motion of the whole body and the movement of body parts and joints over time.",
         "Generate the skeleton sequence corresponding to the person's movement in the video <video>.",
@@ -54,7 +54,44 @@ PROMPT_TEMPLATES = {
     ]
 }
 
+PROMPT_TEMPLATES = {
+    'img_to_skel': [
+        # --- 简洁格式说明 (大部分采用此形式) ---
+        "Generate the skeleton sequence for the video <video>. Please structure the output for each frame using body part tags (e.g., <torso>...</torso>, <left_arm>...</left_arm>, etc.).",
+        "Transcribe the actions in <video> into a sequence of skeleton tokens, ensuring the output is formatted by body parts for each frame.",
+        "What is the skeleton token sequence for the person in <video>? Please provide the answer in a structured format with body part tags.",
+        "You are a motion analysis expert. Analyze the video <video> and output the corresponding motion data. Your output must be structured frame-by-frame, with each frame containing body part sections like <torso>...</torso>.",
+        "Here is a video of a person moving: <video>. The corresponding structural representation, organized by body parts, is:",
+        "Analyze the person's movement in <video> and represent it structurally using body part tags.",
 
+        # --- 完整格式说明 (作为清晰的“锚点”) ---
+        "Please provide the skeletal representation for the movement in the video <video>. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        "What would the motion capture data for the video <video> look like? Output the data using the precise format for each frame: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+    ],
+    'skel_pred': [
+        # --- 简洁格式说明 ---
+        "Continue the motion sequence provided in <skeleton>. The predicted motion should follow the same body part structure (e.g., <torso>...</torso>).",
+        "Predict the future motion based on the provided skeleton sequence <skeleton>. Generate the next set of skeleton tokens using the established body part format.",
+        "Given the motion <skeleton>, what happens next? Please provide the answer in the same structural format.",
+        "You are a motion prediction expert. Analyze the past motion <skeleton> and output the most likely future motion, maintaining the structural format.",
+        "Here is the beginning of a motion sequence: <skeleton>. The continuation of the motion, maintaining the same structure, is:",
+        
+        # --- 完整格式说明 (作为清晰的“锚点”) ---
+        "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        "Past motion: <skeleton>. Future motion (formatted with all body part tags):",
+    ],
+    'text_to_skel': [
+        # --- 简洁格式说明 ---
+        "Generate the skeleton sequence for the following description: <text_description>. Please structure the output using body part tags (e.g., <torso>...</torso>).",
+        "Create a motion sequence based on this text: \"<text_description>\". Ensure the output is formatted with body part tags for each frame.",
+        "What would the motion for '<text_description>' look like in skeleton tokens? Please provide the answer in the structured body part format.",
+        "You are a choreographer. Animate the following description into a skeleton sequence: <text_description>. Use the standard body part structure for your output.",
+        "Description: <text_description>. Corresponding skeleton sequence:",
+
+        # --- 完整格式说明 (作为清晰的“锚点”) ---
+        "Generate the skeleton motion for the description: \"<text_description>\". Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+    ]
+}
 
 TASK_TEMPLATE = {
     'img_to_skel': {
@@ -66,20 +103,31 @@ TASK_TEMPLATE = {
     'skel_pred': {
         "conversations": [{"from": "human", "value": None},
                           {"from": "gpt", "value": "<skeleton>"}],
+        "videos": [],
         "skeletons": []
+    },
+    'text_to_skel': {
+        "conversations": [{"from": "human", "value": None},
+                          {"from": "gpt", "value": "<skeleton>"}],
+        "videos": [],
+        "skeletons": [] # 只包含一个目标文件
     }
 }
 
 def img_to_skel():
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad_vid2skel_{designated_split}.jsonl'
+    num_frames = 64
+    sample_stride = 2
+    designated_split = 'test'
+
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/f{num_frames}s{sample_stride}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/vid_to_skel/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
 
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
     load_image_source_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl"
     load_text_source_file = ""
 
     skeleton_processor = prepare_vqvae(mode='joint3d')
-    img2skel_dataset = SkeletonDataset(num_frames=num_frames, data_mode='joint3d', designated_split=designated_split,
+    img2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
                                        return_extra=[['image']],
                                        )
@@ -90,7 +138,7 @@ def img_to_skel():
     QUANT_SHAPES = []
     IMAGES = []
     for batch in tqdm(img2skel_dataloader):
-        pose_seq, img_src = batch
+        pose_seq, img_src, _ = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -143,31 +191,38 @@ def img_to_skel():
 
         jsonl_data.append(task_item)
 
+    if not os.path.exists(os.path.dirname(jsonl_save_file)):
+        os.makedirs(os.path.dirname(jsonl_save_file))
     with open(jsonl_save_file, 'w') as f:
         for item in jsonl_data:
             f.write(json.dumps(item) + '\n')
 
 
 def skel_pred():
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad_skelPred_{designated_split}.jsonl'
+    num_frames = 16
+    sample_stride = 2
+    designated_split = 'test'
+
+
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/f{num_frames}s{sample_stride}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
 
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
     load_image_source_file = ""
     load_text_source_file = ""
 
     skeleton_processor = prepare_vqvae(mode='joint3d')
-    skel_dataset = SkeletonDataset(num_frames=num_frames * 2, data_mode='joint3d', designated_split=designated_split,
+    skel_dataset = SkeletonDataset(num_frames=num_frames * 2, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
                                        return_extra=[[]],
                                        )
-    skel_dataloader = torch.utils.data.DataLoader(skel_dataset, batch_size=64, shuffle=False, num_workers=0)
+    skel_dataloader = torch.utils.data.DataLoader(skel_dataset, batch_size=64, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
     
     POSES = {'history': [], 'future': []}
     CODEBOOK_INDICES = {'history': [], 'future': []}
     QUANT_SHAPES = {'history': [], 'future': []}
     for batch in tqdm(skel_dataloader):
-        pose_seq = batch
+        pose_seq, _, _ = batch
         # pose_seq: (B,2T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -246,21 +301,27 @@ def skel_pred():
 
         jsonl_data.append(task_item)
 
+    if not os.path.exists(os.path.dirname(jsonl_save_file)):
+        os.makedirs(os.path.dirname(jsonl_save_file))
     with open(jsonl_save_file, 'w') as f:
         for item in jsonl_data:
             f.write(json.dumps(item) + '\n')
 
 
 def text_to_skel():
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/text_to_skel/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad_text2skel_{designated_split}.jsonl'
+    num_frames = 64
+    sample_stride = 2
+    designated_split = 'train'
+
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/text_to_skel/f{num_frames}s{sample_stride}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/text_to_skel/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
 
     load_data_file = "/data2/wxs/DATASETS/AMASS_ByBradley/"
     load_image_source_file = ""
-    load_text_source_file = "/data2/wxs/DATASETS/AMASS_ByBradley/retrieved_text_from_humanml3d.pkl"
+    load_text_source_file = "/data2/wxs/DATASETS/AMASS_ByBradley/text_map.pkl"
 
     skeleton_processor = prepare_vqvae(mode='joint3d')
-    text2skel_dataset = SkeletonDataset(num_frames=num_frames, data_mode='joint3d', designated_split=designated_split,
+    text2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
                                        return_extra=[['text']],
                                        )
@@ -269,9 +330,9 @@ def text_to_skel():
     POSES = []
     CODEBOOK_INDICES = []
     QUANT_SHAPES = []
-    IMAGES = []
+    CAPTIONS = []
     for batch in tqdm(img2skel_dataloader):
-        pose_seq, img_src = batch
+        pose_seq, _, caption = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -283,15 +344,15 @@ def text_to_skel():
         POSES.append(pose_seq.cpu().numpy())
         CODEBOOK_INDICES.append(codebook_indices)
         QUANT_SHAPES.append(quant_shape)
-        IMAGES = IMAGES + img_src
+        CAPTIONS = CAPTIONS + caption
     POSES = np.concatenate(POSES, axis=0)                      # (N, T, 17, 3)
     CODEBOOK_INDICES = np.concatenate(CODEBOOK_INDICES, axis=0)  # (N, quant_t, 17)
     QUANT_SHAPES = np.concatenate(QUANT_SHAPES, axis=0)          # (N, 3)
-    assert CODEBOOK_INDICES.shape[0] == QUANT_SHAPES.shape[0] == len(IMAGES)
+    assert CODEBOOK_INDICES.shape[0] == QUANT_SHAPES.shape[0] == len(CAPTIONS)
 
     jsonl_data = []
 
-    for sample_id in tqdm(range(len(IMAGES))):
+    for sample_id in tqdm(range(len(CAPTIONS))):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
@@ -316,14 +377,16 @@ def text_to_skel():
         quant_shape = QUANT_SHAPES[sample_id]           # (3)
         np.save(quant_shape_save_file, quant_shape)
 
-        task_item = easydict.EasyDict(TASK_TEMPLATE)
-        chosen_prompt = random.choice(PROMPT_TEMPLATES)
-        task_item.conversations[0]["value"] = chosen_prompt
-        task_item.videos = [IMAGES[sample_id]]
+        task_item = easydict.EasyDict(TASK_TEMPLATE['text_to_skel'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['text_to_skel'])
+        prompt_with_caption = chosen_prompt.replace("<text_description>", CAPTIONS[sample_id])
+        task_item.conversations[0]["value"] = prompt_with_caption
         task_item.skeletons = [codebook_index_save_file]
 
         jsonl_data.append(task_item)
 
+    if not os.path.exists(os.path.dirname(jsonl_save_file)):
+        os.makedirs(os.path.dirname(jsonl_save_file))
     with open(jsonl_save_file, 'w') as f:
         for item in jsonl_data:
             f.write(json.dumps(item) + '\n')
@@ -421,92 +484,81 @@ class SkeletonDataset(torch.utils.data.Dataset):
             datareader_config = {**datareader_config_unsplit, **datareader_config_split}
             datareader = DataReaderMesh(**datareader_config)        
             unsplit_data = DataReaderMesh.load_dataset_static(**datareader_config_unsplit)   # '/data2/wxs/DATASETS/AMASS_ByBradley'
+            data_size_ori = len(unsplit_data[designated_split]['source'])
             datareader.dt_dataset = unsplit_data
-
             read_func = datareader.read_2d if data_mode == "joint2d" else datareader.read_3d_image
             data_npy = read_func(designated_split=designated_split)     # (N,17,3)
+            data_sources = datareader.read_source(designated_split=designated_split)    # sampled_stride applied within read_source
 
-            data_dict[dt_file] = {'poses': data_npy}
+            data_dict[dt_file] = {'poses': data_npy, 'sources': data_sources}
 
-            if 'image' in extra_modality_list:
-                img_list = joblib.load(img_src_file)[designated_split]
-                img_list = img_list[::sample_stride]
-                valid_img_indices = []
-                for frame_id, img_path in enumerate(img_list):
-                    if img_path is None:
-                        continue
-                    valid_img_indices.append(frame_id)
-                    if use_cropped_image:
-                        img_list[frame_id] = img_path.replace('images_fps50', f'images_fps50_cropped_{image_shape}')
-
-                data_npy = data_npy[valid_img_indices]
-                img_list = np.array(img_list)[valid_img_indices]
-                assert len(img_list) == data_npy.shape[0]
-            
-                data_dict[dt_file]['img_src'] = img_list
-
-                datareader.dt_dataset[designated_split]['source'] = np.array(datareader.dt_dataset[designated_split]['source'])[valid_img_indices].tolist()
 
             if 'text' in extra_modality_list:
-                data_sources = datareader.read_source(designated_split=designated_split)    # sampled_stride applied within read_source
-                text_data = joblib.load(txt_src_file)[designated_split]
+                assert 'image' not in extra_modality_list, "image and text cannot be requested at the same time yet."
+                if 'AMASS' not in txt_src_file:
+                    raise NotImplementedError("text modality only implemented for AMASS yet.")
+                text_map = joblib.load(txt_src_file)[designated_split]
+                video_map = joblib.load(txt_src_file.replace('text_map', 'video_map'))[designated_split]
 
+                # Get split_id
+                split_id = []
+                captions_list = []
+                for video_id, clip_dict in text_map.items():
+                    for clip_key, captions in clip_dict.items():
+                        original_global_indices = video_map[video_id][clip_key]  # range(0,180)
+                        original_global_indices = np.array(original_global_indices)
 
-                valid_text_indices = {}
-                for frame_id, source_str in enumerate(data_sources):
-                    if source_str in valid_text_indices:
-                        continue
-                    
-                    video_info, cam_info, frame_info = source_str.split('_')
-                    video_id = int(video_info.replace('vid',''))
-                    start_frame_wrt_60fps, end_frame_wrt_60fps = frame_info.replace('frame','').split('-')
-                    start_frame_wrt_60fps, end_frame_wrt_60fps = int(start_frame_wrt_60fps), int(end_frame_wrt_60fps)
-                    video_frame_indices_wrt_amass_npz = text_data[video_id]['frame_indices_wrt_amass_npz']
-
-                    clip_frame_indices_wrt_amass_npz = video_frame_indices_wrt_amass_npz[start_frame_wrt_60fps:end_frame_wrt_60fps+1]
-
-                    text_info_list = text_data[video_id]['humanml3d']
-                    if (text_info_list) == 0:
-                        continue
-
-                    text_data = []
-                    for text_info in text_info_list:
-                        caption_path, valid_frame_indices_wrt_amass_npz = text_info
-                        with cs.open(caption_path) as f:      # 'datasets/humanml3d/texts/000002.txt'
-                            lines = f.readlines()
-                        for line in lines:      # 循环txt文件每一行
-                            line_split = line.strip().split('#')    # ['a man full-body sideways jumps to his left.', 'a/DET man/NOUN fullbody/NOUN sideways/ADV jump/VERB to/ADP his/DET left/NOUN', '0.0', '0.0']
-                            caption = line_split[0]                 # 'a man full-body sideways jumps to his left.'
-                            f_tag = float(line_split[2])
-                            to_tag = float(line_split[3])
-                            f_tag = 0.0 if np.isnan(f_tag) else f_tag
-                            to_tag = 0.0 if np.isnan(to_tag) else to_tag
-
-                            if f_tag == 0.0 and to_tag == 0.0:      # this means the text is captioning the entire sequence of corresponding motion (see official github)
-                                valid_frame_indices = valid_frame_indices_wrt_amass_npz.copy() # humanml3d fps=20
-                            else:
-                                valid_frame_indices = valid_frame_indices_wrt_amass_npz[int(f_tag * 20):int(to_tag * 20)] # humanml3d fps=20
-
-                            valid_frame_st = valid_frame_indices[0] - (valid_frame_indices[1] - valid_frame_indices[0])
-                            valid_frame_ed = valid_frame_indices[-1] + (valid_frame_indices[-1] - valid_frame_indices[-2])
-                            video_frame_indices_tmp = clip_frame_indices_wrt_amass_npz.copy()
-                            video_frame_indices_tmp = video_frame_indices_tmp[video_frame_indices_tmp >= valid_frame_st]
-                            video_frame_indices_tmp = video_frame_indices_tmp[video_frame_indices_tmp <= valid_frame_ed]
-                    
-                            if len(video_frame_indices_tmp) >= self.num_frames:
-                                text_data.append((caption, video_frame_indices_tmp))
+                        start_index = original_global_indices[0]
+                        if start_index % sample_stride != 0:
+                            start_index = start_index + (sample_stride - start_index % sample_stride)
                         
-                    valid_text_indices[source_str] = text_data
+                        # 3. 从调整后的起点开始，以 sample_stride 为步长，选出所有有效的原始索引
+                        sampled_original_indices = np.arange(start_index, original_global_indices[-1] + 1, sample_stride)
 
+                        # 4. 【核心步骤】将下采样后的原始索引，映射到下采样后数据集的新索引
+                        #    这通过整数除法完成
+                        new_global_indices = sampled_original_indices // sample_stride
 
+                        # 5. 由于你的 Dataset __getitem__ 需要一个 slice，我们用 new_global_indices 创建它
+                        #    注意：这里我们假设 new_global_indices 是连续的，如果不是，需要更复杂的处理
+                        #    但根据arange的用法，它一定是连续的。
+                        if len(new_global_indices) >= num_frames:
+                            start, end = new_global_indices[0], new_global_indices[-1] + 1
+                            new_slice = slice(start, end)
 
+                            split_id.extend([new_slice]*len(captions))
+                            captions_list.extend(captions)
 
+                data_list.extend(zip([dt_file]*len(split_id), split_id, captions_list))
 
+            else:
+                if 'image' in extra_modality_list:
+                    assert 'text' not in extra_modality_list, "image and text cannot be requested at the same time yet."                    
+                    img_list = joblib.load(img_src_file)[designated_split]
+                    img_list = img_list[::sample_stride]
+                    valid_img_indices = []
+                    for frame_id, img_path in enumerate(img_list):
+                        if img_path is None:
+                            continue
+                        valid_img_indices.append(frame_id)
+                        if use_cropped_image:
+                            img_list[frame_id] = img_path.replace('images_fps50', f'images_fps50_cropped_{image_shape}')
+                    img_list = np.array(img_list)[valid_img_indices]
+                    data_dict[dt_file]['img_src'] = img_list
+                else:
+                    valid_img_indices = slice(None, None)
+                data_npy = data_npy[valid_img_indices]
+                
+                if 'image' in extra_modality_list:
+                    assert len(img_list) == data_npy.shape[0]
 
+                datareader.dt_dataset[designated_split]['source'] = np.array(datareader.dt_dataset[designated_split]['source'])[valid_img_indices].tolist()
+                
+                # Get split_id
+                split_id = datareader.get_split_id(designated_split=designated_split)   # 这里是用 unsplit_data 中的 'source' 来划分 split_id, 所以也要利用 valid_indices 作修改
 
+                data_list.extend(zip([dt_file]*len(split_id), split_id, [None]*len(split_id)))
 
-            split_id = datareader.get_split_id(designated_split=designated_split)   # 这里是用 unsplit_data 中的 'source' 来划分 split_id, 所以也要利用 valid_indices 作修改
-            data_list.extend(zip([dt_file]*len(split_id), split_id))
 
         self.data_dict = data_dict
         self.data_list = data_list
@@ -515,19 +567,27 @@ class SkeletonDataset(torch.utils.data.Dataset):
         return len(self.data_list)
 
     def __getitem__(self, idx):
-        dt_file, slice_id = self.data_list[idx]
+        dt_file, slice_id, caption = self.data_list[idx]
+        # caption could be None if it's a sample from pose-image sets (e.g., H36M)
         poses = self.data_dict[dt_file]['poses'][slice_id]
+
+        idx = random.randint(0, poses.shape[0] - self.num_frames)
+        poses = poses[idx:idx + self.num_frames]
+
         if 'img_src' in self.data_dict[dt_file]:
             img_src = self.data_dict[dt_file]['img_src'][slice_id].tolist()
-            return torch.from_numpy(poses).float(), img_src
-        return torch.from_numpy(poses).float()
+        else:
+            img_src = []
+
+        return torch.from_numpy(poses).float(), img_src, caption
     
 
 def custom_collate_fn(batch):    
     poses_list = [item[0] for item in batch]
     img_src_list = [item[1] for item in batch]
-    batched_poses = torch.stack(poses_list, dim=0)    
-    return batched_poses, img_src_list
+    caption_list = [item[2] for item in batch]
+    batched_poses = torch.stack(poses_list, dim=0)
+    return batched_poses, img_src_list, caption_list
 
 def prepare_vqvae(mode='joint3d'):
     encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
@@ -550,6 +610,6 @@ def prepare_vqvae(mode='joint3d'):
 
 
 if __name__ == "__main__":
-    # skel_pred()
+    skel_pred()
     text_to_skel()
-    # img_to_skel()
+    img_to_skel()

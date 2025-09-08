@@ -256,48 +256,82 @@ def _get_preprocessed_dataset(
             desc="Running tokenizer on dataset",
         )
     # Dataset({features: ['_prompt', '_response', '_system', '_tools', '_images', '_videos', '_audios'], num_rows: 6})
-    """dataset.map doesn't support debugpy. use the code below for debug
-
-    from collections import defaultdict    
-    processed_data = defaultdict(list)
-
-    # 2. 手动以批次 (batch) 的方式遍历原始数据集
-    #    我们使用 dataset.iter(batch_size=...) 来模拟批处理
-    batch_size = data_args.preprocessing_batch_size
-    for batch in dataset.iter(batch_size=batch_size):
-        # batch 是一个字典，其值为列表，例如:
-        # {'_prompt': [prompt1, prompt2, ...], '_response': [response1, response2, ...]}
-
-        # 3. 对当前批次调用预处理函数
-        #    这个函数在 src/llamafactory/data/processor/supervised.py 中定义
-        processed_batch = dataset_processor.preprocess_dataset(batch)
-        # processed_batch 也是一个字典，其值为处理后的列表，例如:
-        # {'input_ids': [ids1, ids2, ...], 'labels': [labels1, labels2, ...]}
-
-        # 4. 将处理后的结果追加到我们的主容器中
-        for key, value in processed_batch.items():
-            processed_data[key].extend(value)
-
-    # 5. 将收集到的结果 (一个Python字典) 转换回一个 Dataset 对象
-    #    注意：这一步会尝试将所有数据加载到内存中，对于大数据集非常危险！
-    processed_dataset = Dataset.from_dict(processed_data)
-
-    # 6. 手动移除原始列 (.map() 会自动完成这一步) 
-    #    实际上，因为我们是从零创建的新数据集，所以这一步不是必须的，
-    #    因为 processed_data 中已经不包含原始列了。
-
-    # 此时, processed_dataset 就等同于原来使用 .map() 后的 dataset
-    dataset = processed_dataset
     
-    """
 
-    dataset = dataset.map(
-        dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer, 见 src/llamafactory/data/processor/unsupervised.py
-        batched=True,
-        batch_size=data_args.preprocessing_batch_size,
-        remove_columns=column_names,
-        **kwargs,
-    )
+    import sys
+    if 'debugpy' in sys.modules:
+        # dataset.map doesn't support debugpy. use the code below for debug
+        # dataset_processor.template.mm_plugin.expand_mm_tokens = True    
+        from collections import defaultdict
+        from tqdm import tqdm
+        processed_data = defaultdict(list)
+
+        # 2. 手动以批次 (batch) 的方式遍历原始数据集
+        #    我们使用 dataset.iter(batch_size=...) 来模拟批处理
+        # batch_size = data_args.preprocessing_batch_size
+        batch_size = 16
+        print("Processing dataset with batch size:", batch_size)
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        print("WARNING! USING UNOFFICIAL DATASET PROCESSING CODE! See: data/loader.py::_get_preprocessed_dataset")
+        cnt = 0
+        for batch in tqdm(dataset.iter(batch_size=batch_size)):
+            # batch 是一个字典，其值为列表，例如:
+            # {'_prompt': [prompt1, prompt2, ...], '_response': [response1, response2, ...]}
+
+            # 3. 对当前批次调用预处理函数
+            #    这个函数在 src/llamafactory/data/processor/supervised.py 中定义
+            processed_batch = dataset_processor.preprocess_dataset(batch)
+            # processed_batch 也是一个字典，其值为处理后的列表，例如:
+            # {'input_ids': [ids1, ids2, ...], 'labels': [labels1, labels2, ...]}
+
+            # 4. 将处理后的结果追加到我们的主容器中
+            for key, value in processed_batch.items():
+                processed_data[key].extend(value)
+
+            if cnt > 16: 
+                break
+            cnt += 1
+
+
+        # 5. 将收集到的结果 (一个Python字典) 转换回一个 Dataset 对象
+        #    注意：这一步会尝试将所有数据加载到内存中，对于大数据集非常危险！
+        processed_dataset = Dataset.from_dict(processed_data)
+
+        # 6. 手动移除原始列 (.map() 会自动完成这一步) 
+        #    实际上，因为我们是从零创建的新数据集，所以这一步不是必须的，
+        #    因为 processed_data 中已经不包含原始列了。
+
+        # 此时, processed_dataset 就等同于原来使用 .map() 后的 dataset
+        dataset = processed_dataset
+    
+    else:
+        dataset = dataset.map(
+            dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer, 见 src/llamafactory/data/processor/unsupervised.py
+            batched=True,
+            batch_size=data_args.preprocessing_batch_size,
+            remove_columns=column_names,
+            **kwargs,
+        )
     # Dataset({features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'], num_rows: 6})
 
     if training_args.should_log:

@@ -42,6 +42,10 @@ from .patcher import patch_config, patch_model, patch_processor, patch_tokenizer
 from ..extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
 from safetensors.torch import load_file
 #########################################################################################
+# ADDED BY BRADLEY 250829 ###############################################################
+from ..extras_byBrad.modeling_qwen2_5_vl_byBrad import Qwen2_5_VLForConditionalGenerationWithSkeleton
+from transformers import Qwen2_5_VLConfig
+#########################################################################################
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, ProcessorMixin
@@ -135,7 +139,6 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
     state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
     skeleton_processor.load_state_dict(state_dict)
-    skeleton_processor = skeleton_processor.to('cpu')
     skeleton_processor.eval()
     for param in skeleton_processor.parameters():
         param.requires_grad = False
@@ -161,6 +164,15 @@ def load_model(
     r"""Load pretrained model."""
     init_kwargs = _get_init_kwargs(model_args)
     config = load_config(model_args)
+    
+    # ADDED BY BRADLEY 250829 ###############################################################
+    # 如果检测到模型是 qwen2_5_vl，就动态地将我们的自定义类注册到 AutoModel 工厂
+    if getattr(config, "model_type", None) == "qwen2_5_vl":
+        AutoModelForImageTextToText.register(Qwen2_5_VLConfig, Qwen2_5_VLForConditionalGenerationWithSkeleton, exist_ok=True)
+        logger.info_rank0("Registered custom Qwen2.5-VL model with skeleton support.")
+    # --------------------
+    #########################################################################################
+    
     patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
     apply_liger_kernel(config, model_args, is_trainable, require_logits=(finetuning_args.stage not in ["pt", "sft"]))
 
@@ -246,12 +258,13 @@ def load_model(
             print(f"name: {name}, dtype: {param.dtype}, device: {param.device}, trainable: {param.requires_grad}")
     
     # ADDED BY BRADLEY 250828 ###############################################################
-    skeleton_token_id = tokenizer.convert_tokens_to_ids("<|skeleton_pad|>")
-    skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
-    skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
-    setattr(model.model.model.config, 'skeleton_token_id', skeleton_token_id)
-    setattr(model.model.model.config, 'skeleton_start_token_id', skeleton_start_token_id)
-    setattr(model.model.model.config, 'skeleton_end_token_id', skeleton_end_token_id)
+    # 如果不用rope方案，用外语方案，则不需要这里了
+    # skeleton_token_id = tokenizer.convert_tokens_to_ids("<|skeleton_pad|>")
+    # skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
+    # skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
+    # setattr(model.model.model.config, 'skeleton_token_id', skeleton_token_id)
+    # setattr(model.model.model.config, 'skeleton_start_token_id', skeleton_start_token_id)
+    # setattr(model.model.model.config, 'skeleton_end_token_id', skeleton_end_token_id)
     #########################################################################################
 
     return model

@@ -61,6 +61,21 @@ def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArgument
             model_args.resize_vocab = True
             logger.warning_rank0("New tokens have been added, changed `resize_vocab` to True.")
 
+
+    # ADDED BY BRADLEY 250902 ####################################################################################
+    if model_args.codebook_size is not None:
+        new_codebook_tokens = [f"<skel_{i}>" for i in range(model_args.codebook_size)]
+
+        num_added_codebook_tokens = tokenizer.add_tokens(new_tokens=new_codebook_tokens, special_tokens=True)
+        # TODO: 为什么motiongpt和unipose是当作普通词元来处理, 而这里需要是特殊词元
+
+        logger.info_rank0("Add codebook tokens ...{} to tokenizer's vocabulary.".format(",".join(new_codebook_tokens[-10:])))
+        if num_added_codebook_tokens > 0 and not model_args.resize_vocab:
+            model_args.resize_vocab = True
+            logger.warning_rank0("New codebook tokens have been added, changed `resize_vocab` to True.")
+    ##############################################################################################################
+
+
     if model_args.add_special_tokens is not None:
         num_added_special_tokens = tokenizer.add_tokens(new_tokens=model_args.add_special_tokens, special_tokens=True)
         logger.info_rank0(
@@ -124,14 +139,14 @@ def patch_config(
     if getattr(config, "model_type", None) == "kimi_vl" and is_trainable:
         setattr(config.text_config, "topk_method", "greedy")
 
-    if "InternVLChatModel" in getattr(config, "architectures", []):
-        raise ValueError(
-            "Please download the internvl models in a Hugging Face–compatible format "
-            "(for example, https://huggingface.co/OpenGVLab/InternVL3-8B-hf)."
-        )
+    # if "InternVLChatModel" in getattr(config, "architectures", []):
+    #     raise ValueError(
+    #         "Please download the internvl models in a Hugging Face–compatible format "
+    #         "(for example, https://huggingface.co/OpenGVLab/InternVL3-8B-hf)."
+    #     )
 
-    if "LlavaLlamaForCausalLM" in getattr(config, "architectures", []):
-        raise ValueError("Please download llava models with hf-compatible format: https://huggingface.co/llava-hf")
+    # if "LlavaLlamaForCausalLM" in getattr(config, "architectures", []):
+    #     raise ValueError("Please download llava models with hf-compatible format: https://huggingface.co/llava-hf")
 
     if getattr(config, "model_type", None) == "internlm3" and not is_transformers_version_greater_than("4.47.1"):
         raise RuntimeError("InternLM3 model requires transformers>=4.47.1, please upgrade it.")

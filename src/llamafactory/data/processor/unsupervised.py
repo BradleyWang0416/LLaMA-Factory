@@ -37,19 +37,20 @@ class UnsupervisedDatasetProcessor(DatasetProcessor):
         images: list["ImageInput"],
         videos: list["VideoInput"],
         audios: list["AudioInput"],
+        skeletons,  # ADDED BY BRADLEY 250903
     ) -> tuple[list[int], list[int]]:
         if len(response) == 1:
             messages = prompt + response
         else:
             messages = prompt + [{"role": Role.ASSISTANT.value, "content": ""}]
 
-        messages = self.template.mm_plugin.process_messages(messages, images, videos, audios, self.processor)
+        messages = self.template.mm_plugin.process_messages(messages, images, videos, audios, skeletons, self.processor)    # MODIFIED BY BRADLEY 250903
         input_ids, labels = self.template.encode_oneturn(self.tokenizer, messages, system, tools)
         if self.template.efficient_eos:
             labels += [self.tokenizer.eos_token_id]
 
         input_ids, _ = self.template.mm_plugin.process_token_ids(
-            input_ids, None, images, videos, audios, self.tokenizer, self.processor
+            input_ids, None, images, videos, audios, skeletons, self.tokenizer, self.processor    # MODIFIED BY BRADLEY 250903
         )
         source_len, target_len = infer_seqlen(len(input_ids), len(labels), self.data_args.cutoff_len)
         input_ids = input_ids[:source_len]
@@ -74,6 +75,7 @@ class UnsupervisedDatasetProcessor(DatasetProcessor):
                 images=examples["_images"][i] or [],
                 videos=examples["_videos"][i] or [],
                 audios=examples["_audios"][i] or [],
+                skeletons=examples["_skeletons"][i] or [],  # ADDED BY BRADLEY 250903
             )
             model_inputs["input_ids"].append(input_ids)
             model_inputs["attention_mask"].append([1] * len(input_ids))
@@ -81,6 +83,7 @@ class UnsupervisedDatasetProcessor(DatasetProcessor):
             model_inputs["images"].append(examples["_images"][i])
             model_inputs["videos"].append(examples["_videos"][i])
             model_inputs["audios"].append(examples["_audios"][i])
+            model_inputs["skeletons"].append(examples["_skeletons"][i])  # ADDED BY BRADLEY 250903
 
         return model_inputs
 

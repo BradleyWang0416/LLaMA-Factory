@@ -99,7 +99,27 @@ V_HEAD_SAFE_WEIGHTS_NAME = "value_head.safetensors"
 SKELETON_PLACEHOLDER = os.getenv("SKELETON_PLACEHOLDER", "<skeleton>")
 
 # For VQVAE codebook
-SKELETON_TOKEN_BASE = "<skl_{}>"
+SKELETON_TOKEN_BASE = "<skel_{}>"
+SKELETON_FRAME_BREAK = "<|frame_break|>"
+#########################################################################################
+
+# ADDED BY BRADLEY 250906 ###############################################################
+# 新增：定义身体部位分组的特殊词元
+BODY_PART_TOKENS = {
+    "torso": ("<torso>", "</torso>"),
+    "left_arm": ("<left_arm>", "</left_arm>"),
+    "right_arm": ("<right_arm>", "</right_arm>"),
+    "left_leg": ("<left_leg>", "</left_leg>"),
+    "right_leg": ("<right_leg>", "</right_leg>"),
+}
+JOINT_GROUP_MAP = {
+    "torso": [0, 7, 8, 9, 10],  # Pelvis, Torso, Neck, Head, Head_top
+    "left_arm": [11, 12, 13],   # L_Shoulder, L_Elbow, L_Wrist
+    "right_arm": [14, 15, 16],  # R_Shoulder, R_Elbow, R_Wrist
+    "left_leg": [4, 5, 6],      # L_Hip, L_Knee, L_Ankle
+    "right_leg": [1, 2, 3],      # R_Hip, R_Knee, R_Ankle
+}
+BODY_PART_ORDER = ["torso", "left_arm", "right_arm", "left_leg", "right_leg"]
 #########################################################################################
 
 class AttentionFunction(str, Enum):

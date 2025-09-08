@@ -5,7 +5,7 @@ video_max_pixels: 16384
 trust_remote_code: true
 
 # resume_from_checkpoint: saves/qwen2_5vl-7b_byBrad_vid2skel/lora/sft/checkpoint-11500
-resume_from_checkpoint: saves/qwen2_5vl-7b_byBrad_vid2skel_bodypartaware/lora/sft/checkpoint-11000
+resume_from_checkpoint: saves/qwen2_5vl-7b_byBrad_skelPred_bodypartaware/lora/sft/checkpoint-2000
 
 ### method
 stage: sft
@@ -15,7 +15,7 @@ lora_rank: 8
 lora_target: all
 
 ### dataset
-dataset: custom_dataset_byBrad_vid2skel_train
+dataset: custom_dataset_byBrad_skelPred_train
 template: qwen2_vl
 cutoff_len: 2048
 max_samples: 999999
@@ -27,7 +27,7 @@ dataloader_num_workers: 4
 # dataloader_num_workers: 1
 
 ### output
-output_dir: saves/qwen2_5vl-7b_byBrad_vid2skel_bodypartaware/lora/sft
+output_dir: saves/qwen2_5vl-7b_byBrad_skelPred_bodypartaware/lora/sft
 logging_steps: 10
 save_steps: 500
 plot_loss: true

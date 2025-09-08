@@ -162,7 +162,7 @@ def run_sft(
 
         
 
-
+        '''
         # 这段代码是为了在一个独立的样本上进行推理, 不用数据集对象包装好的样本 ###############################################################
         new_video_frames_paths = [f"/data2/wxs/DATASETS/Human3.6M_MMPose/processed/images_fps50_cropped_192x256/S1/S1_Waiting_1.54138969/S1_Waiting_1.54138969_{img:06d}.jpg" 
                                   for img in range(1054,1070)]
@@ -194,6 +194,7 @@ def run_sft(
         except:
             print(f'[Custom Sample] shape mismatch: {[len(tmp) for tmp in custom_predict_motion_id]}. Skipping this sample')
         ################################################################################################################################
+        '''
 
 
 
@@ -240,8 +241,9 @@ def run_sft(
                 # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=True, fig_title=f"{sample_id}", file_folder='.', file_name=f'{sample_id:06d}')
 
                 
-            except:
-                print(f'[SampleID {sample_id}] shape mismatch: {[len(tmp) for tmp in motion_prediction]}. Skipping this sample')
+            except Exception as e:
+                print(f'[SampleID {sample_id}] {e}. Skipping this sample')
+                print(f'[SampleID {sample_id}] shape mismatch: {[len(tmp) for tmp in motion_id_prediction]}. Skipping this sample')
                 continue
 
 
@@ -266,36 +268,56 @@ def run_sft(
 
 def extract_skeleton_tokens(text_label: str) -> list[list[int]]:
     """
-    从包含骨架token的字符串中提取数字索引，并根据<|frame_break|>进行分组。
+    从包含结构化骨架token的字符串中严格提取数字索引。
+    该函数只提取位于身体部位标签（如<torso>...</torso>）内部的骨架token，
+    并根据<|frame_break|>进行分组。
 
     Args:
-        text_label: 形如 '<|skel_start|><skel_3808>...<|frame_break|>...' 的字符串。
+        text_label: 形如 '<|skel_start|><torso><skel_4318>...</torso>...<|frame_break|>...' 的字符串。
 
     Returns:
         一个嵌套列表，每个子列表包含一帧中的所有骨架token的数字索引。
-        例如: [[3808, 4386, ...], [8055, 1996, ...], ...]
+        例如: [[4318, 7637, ...], [3553, 2218, ...], ...]
     """
-    # 1. 根据 <|frame_break|> 分割字符串，得到每一帧的字符串片段
-    frame_strings = text_label.split('<|frame_break|>')
+    # 1. 定义用于匹配 <|skel_{i}|> 中数字的正则表达式
+    skel_pattern = re.compile(r"<skel_(\d+)>")
+
+    # 2. 定义用于匹配所有身体部位区块内容的正则表达式
+    #    - <(torso|left_arm|right_arm|left_leg|right_leg)>: 匹配并捕获任一身体部位的起始标签
+    #    - (.*?): 非贪婪地捕获起始和结束标签之间的所有内容
+    #    - <\/\1>: 使用反向引用\1确保结束标签与起始标签匹配
+    body_part_pattern = re.compile(r"<(torso|left_arm|right_arm|left_leg|right_leg)>(.*?)<\/\1>")
+
+    # 3. (可选但更稳健) 先隔离出骨架数据的主体部分
+    start_tag = "<|skel_start|>"
+    end_tag = "<|skel_end|>"
+    start_index = text_label.find(start_tag)
+    end_index = text_label.find(end_tag)
+
+    if start_index != -1 and end_index != -1:
+        skeleton_block = text_label[start_index + len(start_tag) : end_index]
+    else:
+        skeleton_block = text_label
+
+    # 4. 根据 <|frame_break|> 分割字符串，得到每一帧的字符串片段
+    frame_strings = skeleton_block.split("<|frame_break|>")
 
     all_frames_indices = []
-    
-    # 2. 定义用于匹配 <|skel_{i}|> 中数字的正则表达式
-    #    - <\|skel_  匹配字面量 '<|skel_' (需要转义 '|')
-    #    - (\d+)     匹配并捕获一个或多个数字 (这就是我们想要的数字)
-    #    - \|>       匹配字面量 '|>'
-    pattern = re.compile(r'<skel_(\d+)>')
-
-    # 3. 遍历每一帧的字符串片段
+    # 5. 遍历每一帧的字符串片段
     for frame_str in frame_strings:
-        # 4. 使用 findall 找到所有匹配项的捕获组 (即所有数字)
-        indices_as_strings = pattern.findall(frame_str)
-        
-        # 5. 将字符串列表转换为整数列表
-        indices_as_integers = [int(index) for index in indices_as_strings]
-        
-        # 6. 如果列表不为空，则将其添加到最终结果中
-        if indices_as_integers:
-            all_frames_indices.append(indices_as_integers)
-            
+        # 6. 在当前帧中，找到所有身体部位区块及其内容
+        #    findall会返回一个元组列表，例如 [('torso', '<skel_...><skel_...>'), ('left_arm', '<skel_...>')]
+        part_contents = body_part_pattern.findall(frame_str)
+
+        current_frame_indices = []
+        # 7. 遍历找到的每个身体部位的内容
+        for _, content in part_contents:  # 我们只需要内容，所以用 _ 忽略部位名称
+            # 8. 在该部位的内容中提取所有骨架token的数字
+            indices_as_strings = skel_pattern.findall(content)
+            current_frame_indices.extend([int(index) for index in indices_as_strings])
+
+        # 9. 如果该帧确实提取到了索引，则将其添加到最终结果中
+        if current_frame_indices:
+            all_frames_indices.append(current_frame_indices)
+
     return all_frames_indices

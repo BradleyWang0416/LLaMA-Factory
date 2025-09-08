@@ -36,8 +36,11 @@ from typing_extensions import override
 from ..extras.constants import AUDIO_PLACEHOLDER, IGNORE_INDEX, IMAGE_PLACEHOLDER, VIDEO_PLACEHOLDER
 
 # ADDED BY BRADLEY 250827 ###############################################################
-from ..extras.constants import SKELETON_PLACEHOLDER, SKELETON_TOKEN_BASE
+from ..extras.constants import SKELETON_PLACEHOLDER, SKELETON_TOKEN_BASE, SKELETON_FRAME_BREAK
 from ..extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor
+#########################################################################################
+# ADDED BY BRADLEY 250906 ###############################################################
+from ..extras.constants import BODY_PART_TOKENS, JOINT_GROUP_MAP, BODY_PART_ORDER
 #########################################################################################
 
 from ..extras.packages import (
@@ -187,10 +190,10 @@ class MMPluginMixin:
             )
         
         # ADDED BY BRADLEY 250827 ###############################################################
-        if len(skeletons) != 0 and self.skeleton_token is None:
-            raise ValueError(
-                "This model does not support skeleton input. Please check whether the correct `template` is used."
-            )
+        # if len(skeletons) != 0 and self.skeleton_token is None:
+        #     raise ValueError(
+        #         "This model does not support skeleton input. Please check whether the correct `template` is used."
+        #     )
         #########################################################################################
 
         if self.image_token is not None and processor is None:
@@ -344,13 +347,17 @@ class MMPluginMixin:
         self, skeletons: list["SkeletalInput"], processor: "MMProcessor", **kwargs
     ) -> dict[str, "torch.Tensor"]:
         r"""Regularizes skeletons by encoding with VQVAE."""
-        results = []
-        all_grid_shapes = []
+
         vqvae_encoder = getattr(processor, "skeleton_processor", None)
         if vqvae_encoder is None:
             raise ValueError("Skeleton processor (VQVAEEncoder) not found.")
 
-        for skeleton in skeletons:
+        POSES = []
+        CODEBOOK_INDICES = []
+        GRID_SHAPES = []
+        for skeleton_indices_path in skeletons:
+
+            """
             if isinstance(skeleton, str):
                 data = np.load(skeleton)
             elif isinstance(skeleton, np.ndarray):
@@ -368,12 +375,30 @@ class MMPluginMixin:
             _, _, t_quant, j_quant = quant_t_shape
             grid_shape = [1, t_quant, j_quant] # [t, h, w]
             all_grid_shapes.append(grid_shape)
+            # results.append(encoded_skeleton_indices.squeeze(0)) # 先去掉batch_size维度再将时空空间压缩成一维
+            results.append(encoded_skeleton_indices.squeeze(0))
+            """
+            assert 'skeleton_code' in skeleton_indices_path
+            skeleton_indices = np.load(skeleton_indices_path)
+            skeleton_indices = torch.from_numpy(skeleton_indices)
+            CODEBOOK_INDICES.append(skeleton_indices)
 
-            results.append(encoded_skeleton_indices.squeeze(0).reshape(-1)) # 先去掉batch_size维度再将时空空间压缩成一维
+            skeleton_pose3d_path = skeleton_indices_path.replace('skeleton_code', 'skeleton_pose3d')    # 与 generate_img2skel_data.py 中的保存子文件夹名称保持一致
+            skeleton_pose3d = np.load(skeleton_pose3d_path)  # [T, 17, 3]
+            skeleton_pose3d = torch.from_numpy(skeleton_pose3d)
+            POSES.append(skeleton_pose3d)
+
+            quant_shape_path = skeleton_indices_path.replace('skeleton_code', 'skeleton_quant_shape')
+            quant_shape = np.load(quant_shape_path)  # [3], [C, T_quant, J_quant]
+            _, t_quant, j_quant = quant_shape
+            grid_shape = [1, t_quant, j_quant] # [t, h, w]
+            GRID_SHAPES.append(grid_shape)
+
 
         return {
-            "skeleton_indices": torch.cat(results, dim=0),
-            "skeleton_grid_shapes": all_grid_shapes, # <-- 4. 返回形状列表
+            "skeleton_indices": CODEBOOK_INDICES,  # 相当于 image 模态对应的 pixel_values
+            "skeleton_poses": POSES,
+            "skeleton_grid_thw": torch.tensor(GRID_SHAPES, dtype=torch.long),
             }
     #########################################################################################
 
@@ -1553,7 +1578,8 @@ class Qwen2VLPlugin(BasePlugin):
         skeletons: list["SkeletalInput"], # ADDED BY BRADLEY 250827
         processor: "MMProcessor",
     ) -> dict[str, "torch.Tensor"]:
-        image_processor: BaseImageProcessor = getattr(processor, "image_processor", None)
+        image_processor: BaseImageProcessor = getattr(processor, "image_processor", None)   # <class 'transformers.models.qwen2_vl.image_processing_qwen2_vl_fast.Qwen2VLImageProcessorFast'>
+        # from transformers.models.qwen2_vl.image_processing_qwen2_vl_fast import Qwen2VLImageProcessorFast
         mm_inputs = {}
         if len(images) != 0:
             images = self._regularize_images(
@@ -1579,14 +1605,6 @@ class Qwen2VLPlugin(BasePlugin):
         # ADDED BY BRADLEY 250827 ###############################################################
         if len(skeletons) != 0: # New skeleton processing
             skeleton_data = self._regularize_skeletons(skeletons, processor)
-
-            # 1. 从返回的字典中提取 grid_shapes
-            skeleton_grid_shapes = skeleton_data.pop("skeleton_grid_shapes")
-            
-            # 2. 将形状列表转换为 Qwen-VL 需要的 Tensor 格式
-            #    每个 shape 应该是 [t, h, w]
-            mm_inputs["skeleton_grid_thw"] = torch.tensor(skeleton_grid_shapes, dtype=torch.long)
-
             mm_inputs.update(skeleton_data)
         #########################################################################################
 
@@ -1638,6 +1656,7 @@ class Qwen2VLPlugin(BasePlugin):
 
             # ADDED BY BRADLEY 250827 ###############################################################
             while SKELETON_PLACEHOLDER in content: # New
+                """
                 # skeleton_seqlen = skeleton_grid_thw[num_skeleton_tokens].prod() // merge_length if self.expand_mm_tokens else 1
                 # For skeletons, we do not merge, so we remove `// merge_length`. 需要与 get_rope_indedx (extras_byBrad/get_rope_index.py) 中的 spatial merge 逻辑保持一致
                 skeleton_seqlen = skeleton_grid_thw[num_skeleton_tokens].prod() if self.expand_mm_tokens else 1
@@ -1645,26 +1664,62 @@ class Qwen2VLPlugin(BasePlugin):
                     SKELETON_PLACEHOLDER, f"<|skel_start|>{self.skeleton_token * skeleton_seqlen}<|skel_end|>", 1
                 )
                 num_skeleton_tokens += 1
+                """
 
                 # 以下是另一种思路的实现
-                # if self.expand_mm_tokens:
-                #     # Get the skeleton indices and convert to a token string
-                #     skeleton_indices = mm_inputs["skeleton_indices"]
+                if self.expand_mm_tokens:
+                    # Get the skeleton indices and convert to a token string
+                    skeleton_indices = mm_inputs["skeleton_indices"][num_skeleton_tokens]    # list of (T,J). e.g., (4,17)
                     
-                #     skeleton_token_str = "".join([SKELETON_TOKEN_BASE.format(i) for i in skeleton_indices])
-                #     content = content.replace(
-                #         SKELETON_PLACEHOLDER, f"<|skel_start|>{skeleton_token_str}<|skel_end|>", 1,
-                #     )
-                # else:
-                #     content = content.replace(SKELETON_PLACEHOLDER, self.skeleton_token, 1)
+                    skeleton_token_str = get_skeleton_token_str(skeleton_indices)  # e.g., "<skel_0><skel_1>...<skel_16><|><skel_0>..."
 
-                # num_skeleton_tokens += 1
+                    content = content.replace(
+                        SKELETON_PLACEHOLDER, f"<|skel_start|>{skeleton_token_str}<|skel_end|>", 1,
+                    )
+                else:
+                    raise NotImplementedError("Non-expanded skeleton tokens not implemented yet.")
+                    self.skeleton_token = '<|pad|>'
+                    content = content.replace(SKELETON_PLACEHOLDER, self.skeleton_token, 1)
+
+                num_skeleton_tokens += 1
             #########################################################################################
 
             message["content"] = content
 
         return messages
 
+def get_skeleton_token_str_v0(skeleton_indices):
+    frame_strings = []
+    for frame_indices in skeleton_indices: # 遍历每一帧
+        # 将一帧内的关节索引转换为 <skel_i> 字符串
+        joint_str = "".join([SKELETON_TOKEN_BASE.format(i) for i in frame_indices])
+        frame_strings.append(joint_str)
+    
+    # 4. 使用 "换帧符" 连接所有帧
+    skeleton_token_str = SKELETON_FRAME_BREAK.join(frame_strings)
+    return skeleton_token_str
+
+def get_skeleton_token_str(skeleton_indices):
+    frame_strings = []
+    for frame_indices in skeleton_indices: # 遍历每一帧
+        part_strings = []
+        # 3. 按照预定义的身体部位顺序进行遍历
+        for part_name in BODY_PART_ORDER:
+            start_token, end_token = BODY_PART_TOKENS[part_name]
+            joint_indices_for_part = JOINT_GROUP_MAP[part_name]
+            
+            # 提取该部位对应的关节词元
+            joint_tokens = [SKELETON_TOKEN_BASE.format(frame_indices[j]) for j in joint_indices_for_part]
+            
+            # 构建部位字符串: <torso><skel_1><skel_2></torso>
+            part_strings.append(start_token + "".join(joint_tokens) + end_token)
+        
+        # 将一帧内所有部位的字符串连接起来
+        frame_strings.append("".join(part_strings))
+    
+    # 4. 使用 "换帧符" 连接所有帧
+    skeleton_token_str = SKELETON_FRAME_BREAK.join(frame_strings)
+    return skeleton_token_str
 
 @dataclass
 class GLM4VPlugin(Qwen2VLPlugin):

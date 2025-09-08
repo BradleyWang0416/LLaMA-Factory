@@ -188,6 +188,16 @@ def vllm_infer(
                     sampling_rate=16000,
                 )
                 multi_modal_data = {"audio": zip(audio_data["audios"], audio_data["sampling_rates"])}
+            # ADDED BY BRADLEY 250903 #######################################################################################
+            # elif batch["skeletons"][j] is not None:
+            #     skeleton = batch["skeletons"][j]
+            #     multi_modal_data = {
+            #         "skeleton": template_obj.mm_plugin._regularize_skeletons(
+            #             skeleton,
+            #             tokenizer_module['processor'],
+            #         )["skeleton_indices"]
+            #     }
+            #################################################################################################################
             else:
                 multi_modal_data = None
 

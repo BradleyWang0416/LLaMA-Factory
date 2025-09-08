@@ -172,6 +172,15 @@ class BaseModelArguments:
         metadata={"help": "Whether to trust the execution of code from datasets/models defined on the Hub or not."},
     )
 
+    # ADDED BY BRADLEY 250902 ###############################################################
+    codebook_size: int = field(
+        default=None,
+        metadata={
+            "help": " "
+        },
+    )
+    #########################################################################################
+
     def __post_init__(self):
         if self.model_name_or_path is None:
             raise ValueError("Please provide `model_name_or_path`.")
