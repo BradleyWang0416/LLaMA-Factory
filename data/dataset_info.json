@@ -767,8 +767,40 @@
       "skeletons": "skeletons"
     }
   },
-  "mixed_3_datasets_train": {
-    "file_name": "custom_dataset_byBrad/all3/train.jsonl",
+  "skel_pred_f16s2d16_train": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s2d16/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "skel_pred_f16s2d16_test": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s2d16/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "text_to_skel_f64s2d64_train": {
+    "file_name": "custom_dataset_byBrad/text_to_skel/f64s2d64/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "text_to_skel_f64s2d64_test": {
+    "file_name": "custom_dataset_byBrad/text_to_skel/f64s2d64/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "vid_to_skel_f16s2d16_train": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s2d16/train.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "conversations",
@@ -776,12 +808,77 @@
       "skeletons": "skeletons"
     }
   },
-  "mixed_3_datasets_test": {
-    "file_name": "custom_dataset_byBrad/all3/test.jsonl",
+  "vid_to_skel_f16s2d16_test": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s2d16/test.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "conversations",
       "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  }
+
+
+
+
+
+
+  ,
+  "skel_pred_f16s2d16_NoBodyPartTag_train": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s2d16_NoBodyPartTag/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "skel_pred_f16s2d16_NoBodyPartTag_test": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s2d16_NoBodyPartTag/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "text_to_skel_f64s2d64_NoBodyPartTag_train": {
+    "file_name": "custom_dataset_byBrad/text_to_skel/f64s2d64_NoBodyPartTag/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "text_to_skel_f64s2d64_NoBodyPartTag_test": {
+    "file_name": "custom_dataset_byBrad/text_to_skel/f64s2d64_NoBodyPartTag/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "vid_to_skel_f16s2d16_NoBodyPartTag_train": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s2d16_NoBodyPartTag/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "vid_to_skel_f16s2d16_NoBodyPartTag_test": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s2d16_NoBodyPartTag/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "skel_pred_f16s2d16_fixed_AmsH36mPw3d_train": {
+    "file_name": "custom_dataset_byBrad/skel_pred/ams_h36m_3dpw/f16s2d16_fixed/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
       "skeletons": "skeletons"
     }
   }

@@ -1,6 +1,6 @@
-CONFIG=examples/new_byBradley/merge_lora/qwen2_5vl_lora_sft_byBrad_M0102.yaml
+CONFIG=examples/new_byBradley/merge_lora/qwen2_5vl_lora_sft_byBrad_all3.yaml
 
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=4 \
     llamafactory-cli \
     export \
     $CONFIG

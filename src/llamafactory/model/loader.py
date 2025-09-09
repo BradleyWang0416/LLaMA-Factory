@@ -109,8 +109,8 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     try:
         processor = AutoProcessor.from_pretrained(
             model_args.model_name_or_path,
-            use_fast=model_args.use_fast_tokenizer,
-            **init_kwargs,
+            use_fast=model_args.use_fast_tokenizer, # True
+            **init_kwargs,  # {'trust_remote_code': True, 'cache_dir': None, 'revision': 'main', 'token': None}
         )
     except ValueError:  # try another one
         processor = AutoProcessor.from_pretrained(
@@ -133,16 +133,16 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
         patch_processor(processor, tokenizer, model_args)
 
     # ADDED BY BRADLEY 250828 ###############################################################
-    encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-    vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-    decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-    skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
-    state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
-    skeleton_processor.load_state_dict(state_dict)
-    skeleton_processor.eval()
-    for param in skeleton_processor.parameters():
-        param.requires_grad = False
-    setattr(processor, 'skeleton_processor', skeleton_processor)
+    # encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+    # vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+    # decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+    # skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+    # state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
+    # skeleton_processor.load_state_dict(state_dict)
+    # skeleton_processor.eval()
+    # for param in skeleton_processor.parameters():
+    #     param.requires_grad = False
+    setattr(processor, 'skeleton_processor', [])
     #########################################################################################
 
     return {"tokenizer": tokenizer, "processor": processor}

@@ -1,6 +1,6 @@
-CONFIG=examples/new_byBradley/infer/qwen2_5vl_lora_sft_byBrad_M0102.yaml
+CONFIG=examples/new_byBradley/infer/NoBodyPartTag/skelPred_f16s2d16.yaml
 
-CUDA_VISIBLE_DEVICES=1,2,3,4,5,6 \
+CUDA_VISIBLE_DEVICES=3 \
     torchrun \
     -m debugpy --listen 5678 --wait-for-client \
     src/llamafactory/launcher.py \

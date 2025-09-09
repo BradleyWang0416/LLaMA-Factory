@@ -37,6 +37,14 @@ if TYPE_CHECKING:
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
 
+from ...data.mm_plugin import get_skeleton_token_str, parse_skeleton_token_str
+import sys
+sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+from lib.utils.viz_skel_seq import viz_skel_seq_anim
+
+    
+
+
 logger = get_logger(__name__)
 
 
@@ -147,9 +155,26 @@ def run_sft(
         vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
         decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
         skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+
+
+
         mode = 'joint3d'
-        if mode == 'joint3d':
+        sample_stride = 2
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        if 'sample_stride' not in locals():
+            raise NotImplementedError('must set sample_stride')
+        if mode == 'joint3d' and sample_stride == 1:
             ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
+        elif mode == 'joint3d' and sample_stride == 2:
+            ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d_f64s2/models/checkpoint_epoch_148_step_240000/model.safetensors"
         else:
             raise NotImplementedError        
         state_dict = load_file(ckpt_path, device="cpu")
@@ -206,7 +231,7 @@ def run_sft(
 
         MOTION_LABEL = []
         MOTION_PRED = []
-
+        success_log = []
         for sample_id in range(predict_results.predictions.shape[0]):
             sample_prediction = predict_results.predictions[sample_id]  # (1133,)
             sample_label = predict_results.label_ids[sample_id] # (96,)
@@ -216,26 +241,24 @@ def run_sft(
             text_label = tokenizer.decode(sample_label[sample_label != -100], skip_special_tokens=False)
 
 
-            motion_id_prediction = extract_skeleton_tokens(text_prediction)
-            motion_id_label = extract_skeleton_tokens(text_label)
-
-
+            motion_id_label = parse_skeleton_token_str(text_label)
             motion_id_label = np.array(motion_id_label)
             motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
             motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
+
             try:
+                motion_id_prediction = parse_skeleton_token_str(text_prediction)
                 motion_id_prediction = np.array(motion_id_prediction)
                 motion_id_prediction = torch.from_numpy(motion_id_prediction).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
                 motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
                 MOTION_LABEL.append(motion_label)
                 MOTION_PRED.append(motion_prediction)
+                success_log.append(sample_id)
                 continue
 
-                import sys
-                sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
-                from lib.utils.viz_skel_seq import viz_skel_seq_anim
+
 
                 viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
                 # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=True, fig_title=f"{sample_id}", file_folder='.', file_name=f'{sample_id:06d}')
@@ -243,7 +266,6 @@ def run_sft(
                 
             except Exception as e:
                 print(f'[SampleID {sample_id}] {e}. Skipping this sample')
-                print(f'[SampleID {sample_id}] shape mismatch: {[len(tmp) for tmp in motion_id_prediction]}. Skipping this sample')
                 continue
 
 
