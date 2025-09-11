@@ -179,6 +179,12 @@ class BaseModelArguments:
             "help": " "
         },
     )
+    vqvae_ckpt: str = field(
+        default=None,
+        metadata={
+            "help": " "
+        },
+    )
     #########################################################################################
 
     def __post_init__(self):
