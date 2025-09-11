@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
 
-from ...data.mm_plugin import get_skeleton_token_str, parse_skeleton_token_str
+from ...extras_byBrad.convert_skel_token import *
 import sys
 sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
 from lib.utils.viz_skel_seq import viz_skel_seq_anim
@@ -158,25 +158,7 @@ def run_sft(
 
 
 
-        mode = 'joint3d'
-        sample_stride = 2
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        print(f"\n >>>>>>>>>>>>>> sample_stride={sample_stride} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
-        if 'sample_stride' not in locals():
-            raise NotImplementedError('must set sample_stride')
-        if mode == 'joint3d' and sample_stride == 1:
-            ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
-        elif mode == 'joint3d' and sample_stride == 2:
-            ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d_f64s2/models/checkpoint_epoch_148_step_240000/model.safetensors"
-        else:
-            raise NotImplementedError        
+        ckpt_path = model_args.vqvae_ckpt
         state_dict = load_file(ckpt_path, device="cpu")
         skeleton_processor.load_state_dict(state_dict)
         skeleton_processor.eval()
@@ -221,7 +203,10 @@ def run_sft(
         ################################################################################################################################
         '''
 
+        get_skel_str_func = globals()[model_args.get_skel_str_func]
+        # same as: globals()[tokenizer_module['processor']['skeleton_processor']]
 
+        parse_skel_str_func = globals()[model_args.parse_skel_str_func]
 
 
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
@@ -241,14 +226,14 @@ def run_sft(
             text_label = tokenizer.decode(sample_label[sample_label != -100], skip_special_tokens=False)
 
 
-            motion_id_label = parse_skeleton_token_str(text_label)
+            motion_id_label = get_skel_str_func(text_label)
             motion_id_label = np.array(motion_id_label)
             motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
             motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
 
             try:
-                motion_id_prediction = parse_skeleton_token_str(text_prediction)
+                motion_id_prediction = parse_skel_str_func(text_prediction)
                 motion_id_prediction = np.array(motion_id_prediction)
                 motion_id_prediction = torch.from_numpy(motion_id_prediction).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
                 motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
