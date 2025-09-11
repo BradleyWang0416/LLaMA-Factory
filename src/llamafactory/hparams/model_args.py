@@ -185,6 +185,12 @@ class BaseModelArguments:
             "help": " "
         },
     )
+    use_mpjpe_loss: bool = field(
+        default=False,
+        metadata={
+            "help": " "
+        },
+    )
     get_skel_str_func: str = field(
         default=None,
         metadata={

@@ -7,7 +7,7 @@ vqvae_ckpt: /home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experim
 get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
 parse_skel_str_func: parse_skeleton_token_str_wBodyPart   # only used in infer
 
-max_samples: 4096
+max_samples: 256
 
 # add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
 # add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>

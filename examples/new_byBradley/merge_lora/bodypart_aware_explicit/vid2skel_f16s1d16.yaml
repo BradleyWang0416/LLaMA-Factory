@@ -1,13 +1,13 @@
 ### model
 model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
-adapter_name_or_path: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/train/checkpoint-10000
+adapter_name_or_path: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/train/checkpoint-19000
 template: qwen2_vl
 trust_remote_code: true
 
 
 
 
-export_dir: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/merge/checkpoint-10000
+export_dir: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/merge/checkpoint-19000
 export_size: 5
 export_device: cpu  # choices: [cpu, auto]
 export_legacy_format: false

@@ -1,6 +1,8 @@
+import os
 from typing import Optional, Union, Tuple
 import types
 import torch
+import torch.nn as nn
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.cache_utils import Cache
 from transformers.processing_utils import Unpack
@@ -12,14 +14,93 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     is_torchdynamo_compiling,
 )
 from transformers.utils import can_return_tuple, auto_docstring
+from transformers.loss.loss_utils import fixed_cross_entropy, ForCausalLMLoss
+from safetensors.torch import load_file
+from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+
 
 class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGeneration):
-    def __init__(self, config: Qwen2_5_VLConfig):
+    def __init__(self, config: Qwen2_5_VLConfig, **kwargs_byBrad):
         super().__init__(config)
 
+        ########## MPJPE EXRTA LOSS PART #####################################################################################################################   
+        self.use_mpjpe_loss = kwargs_byBrad['use_mpjpe_loss']
+        self.mpjpe_success_count = 0
+
+        ########## VQVAE PART #####################################################################################################################   
+        self.vqvae_ckpt = kwargs_byBrad['vqvae_ckpt']
+        
+        encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+        vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+        decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+        self._skeleton_processor_container = [SkeletonProcessor(encoder, decoder, vq)]
+        for param in self._skeleton_processor_container[0].parameters():
+            param.requires_grad = False
+        self._skeleton_processor_container[0].eval()
+
+        self.is_vqvae_weights_loaded = False
+
+        ########## FORWARD PART#####################################################################################################################
         self.model.forward = types.MethodType(custom_qwen2_5_vl_model_forward, self.model)
 
-    def get_skeleton_placeholder_mask(self, input_ids, inputs_embeds):
+    def load_vqvae_weights(self):
+        """
+        加载 VQ-VAE 的权重到正确的设备上。
+        """
+        # 获取 skeleton_processor 当前所在的设备
+        device = next(self.skeleton_processor.parameters()).device
+        print(f"Loading VQ-VAE weights from {self.vqvae_ckpt} to device: {device}")
+        
+        # 从文件加载权重，直接加载到目标设备
+        state_dict = load_file(self.vqvae_ckpt, device=str(device))
+        self.skeleton_processor.load_state_dict(state_dict, assign=True)
+        self.is_vqvae_weights_loaded = True
+
+    def to(self, device, *args, **kwargs):
+        """
+        重写 to 方法，以确保 skeleton_processor 也被移动到正确的设备。
+        """
+        # 首先，调用父类的 to 方法，移动模型的所有已注册参数
+        super().to(device, *args, **kwargs)
+        
+        # 然后，手动将我们“隐藏”的 skeleton_processor 移动到相同的设备
+        if hasattr(self, '_skeleton_processor_container'):
+            processor = self._skeleton_processor_container[0]            
+            # 检查 skeleton_processor 是否在 meta 设备上
+            is_meta = any(p.is_meta for p in processor.parameters())
+            
+            if is_meta and device != torch.device("meta"):
+                # 如果在 meta 设备上，不能直接 .to()。
+                # 我们需要重新在目标设备上创建它。
+                # 这会创建一个与原始模块结构相同但参数在目标设备上的新模块。
+                print(f"Re-initializing SkeletonProcessor from meta to device: {device}")
+                new_processor = type(processor)(
+                    encoder=type(processor.encoder)(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1]),
+                    decoder=type(processor.decoder)(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0]),
+                    vq=type(processor.vq)(nb_code=8192, code_dim=3072, is_train=False),
+                ).to(device)
+                
+                # 冻结参数并设置为评估模式
+                for param in new_processor.parameters():
+                    param.requires_grad = False
+                new_processor.eval()
+                
+                # 替换掉原来的 meta 设备模块
+                self._skeleton_processor_container[0] = new_processor
+            else:
+                # 如果不在 meta 设备上，或者目标设备也是 meta，正常移动
+                processor.to(device)
+
+            print(f"SkeletonProcessor is now on device: {next(self.skeleton_processor.parameters()).device}")
+
+        # 确保返回 self 以支持链式调用
+        return self
+    
+    @property
+    def skeleton_processor(self):
+        return self._skeleton_processor_container[0]
+
+    def get_skeleton_placeholder_mask(self, input_ids, inputs_embeds):  # TODO. how to use this?
         """
         获取骨架数据在序列中占位符的掩码。
         """
@@ -29,6 +110,95 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         
         special_skeleton_mask = (input_ids == skeleton_token_id)
         return special_skeleton_mask.unsqueeze(-1).expand_as(inputs_embeds)
+
+    def _init_skeleton_parser(self):
+        """
+        初始化骨架解析器所需的映射。
+        这个函数只在第一次需要时执行一次，以提高效率。
+        """
+        if hasattr(self, "_token_id_to_vq_index"):
+            return
+
+        skeleton_config = getattr(self.config, "skeleton_config", None)
+        if skeleton_config is None:
+            raise ValueError("`skeleton_config` not found in model config. Please set it during model loading.")
+
+        # 创建一个从 token ID 到 VQ-VAE codebook 索引的映射
+        skeleton_token_indices = skeleton_config['skeleton_token_indices']
+        self._token_id_to_vq_index = {token_id: i for i, token_id in enumerate(skeleton_token_indices)}
+        
+        # 将所有骨架 token ID 存储在一个集合中，以便快速查找
+        self._skeleton_token_id_set = set(skeleton_token_indices)
+
+        self._skeleton_token_id_tensor = torch.tensor(
+            skeleton_token_indices, device=self.device, dtype=torch.long
+        )
+
+    def _parse_skeleton_indices_from_ids(self, token_ids: torch.Tensor) -> torch.Tensor:
+        """
+        从 token ID 序列中解析出骨架索引。
+        使用 self.config.skeleton_config 中的信息。
+        """
+        self._init_skeleton_parser() # 确保映射已初始化
+
+        # 遍历 token_ids，只收集属于骨架 token 的 ID
+        # 注意：在 GPU 上直接进行这种循环效率较低，但对于辅助损失计算是可接受的
+        vq_indices = [
+            self._token_id_to_vq_index[token_id.item()]
+            for token_id in token_ids
+            if token_id.item() in self._skeleton_token_id_set
+        ]
+
+        if not vq_indices:
+            return torch.tensor([], device=token_ids.device, dtype=torch.long)
+
+        # 假设每 17 个索引为一帧。如果序列长度不完整，则丢弃末尾不完整的帧。
+        num_frames = len(vq_indices) // 17
+        if num_frames == 0:
+            return torch.tensor([], device=token_ids.device, dtype=torch.long)
+        
+        # 截断并重塑为 [1, T, 17]
+        vq_indices_tensor = torch.tensor(vq_indices[:num_frames * 17], device=token_ids.device, dtype=torch.long)
+        return vq_indices_tensor.view(1, num_frames, 17)
+
+    def compute_mpjpe_loss(self, pred_poses: torch.Tensor, true_poses: torch.Tensor) -> torch.Tensor:
+        """
+        计算 MPJPE (Mean Per Joint Position Error) 损失。
+        Args:
+            pred_poses (torch.Tensor): 预测的 3D 姿态，形状 (B, T, J, 3)。
+            true_poses (torch.Tensor): 真实的 3D 姿态，形状 (B, T, J, 3)。
+        Returns:
+            torch.Tensor: 一个标量 MPJPE 损失值。
+        """
+        joint_errors = torch.norm(pred_poses - true_poses, p=2, dim=-1)
+        mpjpe = torch.mean(joint_errors)
+        return mpjpe
+    
+    def loss_function(  # copied from transformers.loss.loss_utils.ForCausalLMLoss
+            self,
+            logits,
+            labels,
+            vocab_size: int,
+            num_items_in_batch: Optional[torch.Tensor] = None,
+            ignore_index: int = -100,
+            shift_labels: Optional[torch.Tensor] = None,
+            **kwargs,
+            ) -> torch.Tensor:
+        # Upcast to float if we need to compute the loss to avoid potential precision issues
+        logits = logits.float()
+
+        if shift_labels is None:
+            # Shift so that tokens < n predict n
+            labels = nn.functional.pad(labels, (0, 1), value=ignore_index)
+            shift_labels = labels[..., 1:].contiguous()
+
+        # Flatten the tokens
+        logits = logits.view(-1, vocab_size)
+        shift_labels = shift_labels.view(-1)
+        # Enable model parallelism
+        shift_labels = shift_labels.to(logits.device)
+        loss = fixed_cross_entropy(logits, shift_labels, num_items_in_batch, ignore_index, **kwargs)
+        return loss
 
     # 重写 forward 方法以接收新的参数
     @can_return_tuple
@@ -92,7 +262,72 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)
+            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)  # ForCausalLMLoss
+            # logits: [1,352,159872]; labels: [1,352]
+
+            # ADDED BY BRADLEY 250911 #################################################################################
+            mpjpe_loss = None
+            if self.use_mpjpe_loss and skeleton_poses is not None:
+                try:
+                    if not self.is_vqvae_weights_loaded:
+                        self.load_vqvae_weights()
+
+                    self._init_skeleton_parser() # 确保解析器已初始化
+
+                    # 从 logits 中获取预测的 token ID (不带梯度)
+                    pred_ids = torch.argmax(logits.detach(), dim=-1)    # [1,352]
+
+                    # 步骤 1: 识别真实 `labels` 中的骨架 token 区域
+                    # is_gt_skeleton_mask: [B, L], bool, 标记哪些位置应该是骨架 token
+                    is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)    # [1,352]
+
+                    # 如果当前批次中没有任何骨架 token，则直接跳过
+                    if torch.any(is_gt_skeleton_mask):
+                        # 步骤 2: 获取模型在这些真实骨架区域的预测
+                        # pred_ids_in_gt_skel_region: [N], N 是骨架 token 的总数
+                        pred_ids_in_gt_skel_region = pred_ids[is_gt_skeleton_mask]
+
+                        # 步骤 3: 验证所有这些预测是否也都是有效的骨架 token
+                        # all_preds_are_valid: bool, 检查是否所有预测都在骨架 token ID 集合中
+                        all_preds_are_valid = torch.isin(pred_ids_in_gt_skel_region, self._skeleton_token_id_tensor).all()
+
+                        # 步骤 4: 如果所有预测都有效，才计算 MPJPE
+                        if all_preds_are_valid:
+                            # 从有效的预测 token ID 中解析出 VQ-VAE 索引
+                            # 注意：这里我们直接使用 pred_ids_in_gt_skel_region，因为它已经被验证过
+                            pred_skel_indices = self._parse_skeleton_indices_from_ids(pred_ids_in_gt_skel_region)
+
+                            if pred_skel_indices.numel() > 0:
+                                # 解码预测的索引以获得 3D 姿态
+                                pred_poses = self.skeleton_processor.decode(pred_skel_indices)
+
+                                # 裁剪真实姿态以匹配预测的长度
+                                T_pred = pred_poses.size(1)
+                                true_poses_sliced = skeleton_poses[0][:T_pred, :, :]
+
+                                # 计算 MPJPE 损失
+                                if true_poses_sliced.size(1) == T_pred:
+                                    mpjpe_loss = self.compute_mpjpe_loss(pred_poses, true_poses_sliced)
+
+
+                except Exception as e:
+                    import warnings
+                    warnings.warn(f"Could not compute MPJPE loss: {e}")
+                    mpjpe_loss = None
+            ###########################################################################################################
+
+            if mpjpe_loss is not None and torch.isfinite(mpjpe_loss):
+                mpjpe_loss_weight = getattr(self.config, "mpjpe_loss_weight", 0.1)
+                loss = loss + mpjpe_loss_weight * mpjpe_loss
+                self.mpjpe_success_count += 1
+
+                # 2. 添加条件打印逻辑
+                # 只在主进程 (rank 0) 打印，避免日志混乱
+                # 在第一次成功时打印，之后每100次成功打印一次
+                if int(os.getenv("LOCAL_RANK", "0")) == 0:
+                    if self.mpjpe_success_count == 1 or self.mpjpe_success_count % 100 == 0:
+                        print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>>> [Rank 0] MPJPE loss successfully applied <<<<<<<<<<<<<<<<<<<<<<<<<<")
+                        print(f">>>>>>>>>>>>>>>>>>>>>>>>>> Total application count: {self.mpjpe_success_count} <<<<<<<<<<<<<<<<<<<<<<<<<<\n")
 
         return Qwen2_5_VLCausalLMOutputWithPast(
             loss=loss,

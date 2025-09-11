@@ -168,6 +168,11 @@ def patch_config(
             if init_kwargs.get("device_map", None) == "auto":
                 init_kwargs["offload_folder"] = model_args.offload_folder
 
+    # ADDED BY BRADLEY 250911 #####################################################################################
+    init_kwargs['vqvae_ckpt'] = model_args.vqvae_ckpt
+    init_kwargs['use_mpjpe_loss'] = model_args.use_mpjpe_loss
+    ###############################################################################################################
+
 
 def patch_model(
     model: "PreTrainedModel",

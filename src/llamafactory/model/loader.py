@@ -46,6 +46,10 @@ from safetensors.torch import load_file
 from ..extras_byBrad.modeling_qwen2_5_vl_byBrad import Qwen2_5_VLForConditionalGenerationWithSkeleton
 from transformers import Qwen2_5_VLConfig
 #########################################################################################
+# ADDED BY BRADLEY 250829 ###############################################################
+from ..extras.constants import SKELETON_TOKEN_BASE
+#########################################################################################
+
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, ProcessorMixin
@@ -265,6 +269,17 @@ def load_model(
     # setattr(model.model.model.config, 'skeleton_token_id', skeleton_token_id)
     # setattr(model.model.model.config, 'skeleton_start_token_id', skeleton_start_token_id)
     # setattr(model.model.model.config, 'skeleton_end_token_id', skeleton_end_token_id)
+    #########################################################################################
+
+    # ADDED BY BRADLEY 250911 ###############################################################
+    skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
+    skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
+    skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
+    setattr(model.model.model.config, 'skeleton_config', {
+        'skeleton_token_indices': skeleton_token_indices,
+        'skeleton_start_token_id': skeleton_start_token_id,
+        'skeleton_end_token_id': skeleton_end_token_id,
+    })
     #########################################################################################
 
     return model

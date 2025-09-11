@@ -900,5 +900,21 @@
       "videos": "videos",
       "skeletons": "skeletons"
     }
+  },
+  "skel_pred_f16s1d16_bodypart_aware_explicit_train": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s1d16_bodypart_aware_explicit/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
+  },
+  "skel_pred_f16s1d16_bodypart_aware_explicit_test": {
+    "file_name": "custom_dataset_byBrad/skel_pred/f16s1d16_bodypart_aware_explicit/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "skeletons": "skeletons"
+    }
   }
 }

@@ -226,7 +226,7 @@ def run_sft(
             text_label = tokenizer.decode(sample_label[sample_label != -100], skip_special_tokens=False)
 
 
-            motion_id_label = get_skel_str_func(text_label)
+            motion_id_label = parse_skel_str_func(text_label)
             motion_id_label = np.array(motion_id_label)
             motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
             motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)

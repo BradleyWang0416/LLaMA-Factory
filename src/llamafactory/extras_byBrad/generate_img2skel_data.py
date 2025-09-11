@@ -266,27 +266,30 @@ def img_to_skel():
 
 def skel_pred():
     num_frames = 16
-    sample_stride = 2
+    sample_stride = 1
     data_stride = 16
-    designated_split = 'test'
+    designated_split = 'train'
 
-    prompt_template_key = 'fixed'
+    # prompt_template_key = 'fixed'
     # prompt_template_key = 'simple'
     # prompt_template_key = 'bodypart_aware'
+    prompt_template_key = 'bodypart_aware_explicit'
 
-    # load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
-    load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl,/data2/wxs/DATASETS/AMASS_ByBradley/,/data2/wxs/DATASETS/PW3D_ByBradley/all_data.pkl"
+    load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
+    # load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl,/data2/wxs/DATASETS/AMASS_ByBradley/,/data2/wxs/DATASETS/PW3D_ByBradley/all_data.pkl"
 
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
+    # save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    # jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
 
-    load_image_source_file = ",,"
-    load_text_source_file = ",,"
+    load_image_source_file = ""
+    load_text_source_file = ""
 
     skeleton_processor = prepare_vqvae(mode='joint3d', sample_stride=sample_stride)
     skel_dataset = SkeletonDataset(num_frames=num_frames * 2, sample_stride=sample_stride, data_stride=data_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
-                                       return_extra=[[],[],[]],
+                                       return_extra=[[]],
                                        )
     skel_dataloader = torch.utils.data.DataLoader(skel_dataset, batch_size=64, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
     
@@ -690,6 +693,6 @@ def prepare_vqvae(mode='joint3d', sample_stride=1):
 
 
 if __name__ == "__main__":
-    # skel_pred()
+    skel_pred()
     # text_to_skel()
-    img_to_skel()
+    # img_to_skel()

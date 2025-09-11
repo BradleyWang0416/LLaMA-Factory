@@ -19,11 +19,16 @@
 # CONFIG=examples/new_byBradley/train_lora/AmsH36mPw3d/fixed/skelPred_f16s2d16.yaml
 # LOG=exp_vid2skel_f16s2d16_fixed_AmsH36mPw3d.log
 
-CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
-LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit.log
+CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom10000.yaml
+LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom10000_wMPJPE.log
+
+CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/skelPred_f16s1d16.yaml
+LOG=exp_skelPred_f16s1d16_bodypart_aware_explicit.log
 
 
-CUDA_VISIBLE_DEVICES=3,4,5,6 \
+CUDA_VISIBLE_DEVICES=4,5,6 \
     nohup \
     llamafactory-cli \
     train \
@@ -31,7 +36,7 @@ CUDA_VISIBLE_DEVICES=3,4,5,6 \
     > $LOG &
 
 # ALLOW_EXTRA_ARGS=true \
-# CUDA_VISIBLE_DEVICES=3 \
+# CUDA_VISIBLE_DEVICES=5 \
 #     torchrun --nproc_per_node 1 -m debugpy --listen 5678 --wait-for-client \
 #     src/llamafactory/launcher.py \
 #     $CONFIG

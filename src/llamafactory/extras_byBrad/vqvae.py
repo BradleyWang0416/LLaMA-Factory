@@ -340,12 +340,12 @@ class SKEL_VQVAE(nn.Module):
         self.decoder = decoder
         self.vq = vq
 
-    def to(self, device):
-        self.encoder = self.encoder.to(device)
-        self.decoder = self.decoder.to(device)
-        self.vq = self.vq.to(device)
-        self.device = device
-        return self
+    # def to(self, device):
+    #     self.encoder = self.encoder.to(device)
+    #     self.decoder = self.decoder.to(device)
+    #     self.vq = self.vq.to(device)
+    #     self.device = device
+    #     return self
     
     def encdec_slice_frames(self, x, frame_batch_size, encdec, return_vq):
         num_frames = x.shape[2]
