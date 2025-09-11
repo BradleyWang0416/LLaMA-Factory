@@ -35,6 +35,7 @@ from .model_utils.quantization import configure_quantization
 from .model_utils.rope import configure_rope
 from .model_utils.valuehead import prepare_valuehead_model
 from .model_utils.visual import autocast_projector_dtype, configure_visual_model
+from ..extras.constants import SKELETON_TOKEN_BASE
 
 
 if TYPE_CHECKING:
@@ -64,7 +65,9 @@ def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArgument
 
     # ADDED BY BRADLEY 250902 ####################################################################################
     if model_args.codebook_size is not None:
-        new_codebook_tokens = [f"<skel_{i}>" for i in range(model_args.codebook_size)]
+
+        new_codebook_tokens = [SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)]
+        # new_codebook_tokens = [f"<skel_{i}>" for i in range(model_args.codebook_size)]
 
         num_added_codebook_tokens = tokenizer.add_tokens(new_tokens=new_codebook_tokens, special_tokens=True)
         # TODO: 为什么motiongpt和unipose是当作普通词元来处理, 而这里需要是特殊词元

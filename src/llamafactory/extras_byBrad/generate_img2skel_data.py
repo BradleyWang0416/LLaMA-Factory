@@ -84,6 +84,9 @@ PROMPT_TEMPLATES = {
             "Please provide the skeletal representation for the movement in the video <video>. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
             "What would the motion capture data for the video <video> look like? Output the data using the precise format for each frame: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
+        'bodypart_aware_explicit': [
+            "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
     },
     'skel_pred': {
         'fixed': [
@@ -113,6 +116,9 @@ PROMPT_TEMPLATES = {
             "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
             "Past motion: <skeleton>. Future motion (formatted with all body part tags):",
         ],
+        'bodypart_aware_explicit': [
+            "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Use <|frame_break|> to separate frames. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
     },
     'text_to_skel': {
         'fixed': [
@@ -141,6 +147,9 @@ PROMPT_TEMPLATES = {
             # --- 完整格式说明 (作为清晰的“锚点”) ---
             "Generate the skeleton motion for the description: \"<text_description>\". Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
+        'bodypart_aware_explicit': [
+            "Generate the skeleton motion for the description: \"<text_description>\". Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
     },
 }
 
@@ -167,13 +176,14 @@ TASK_TEMPLATE = {
 
 def img_to_skel():
     num_frames = 16
-    sample_stride = 2
+    sample_stride = 1
     data_stride = 16
     designated_split = 'test'
     
-    prompt_template_key = 'fixed'
+    # prompt_template_key = 'fixed'
     # prompt_template_key = 'simple'
     # prompt_template_key = 'bodypart_aware'
+    prompt_template_key = 'bodypart_aware_explicit'
 
     save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
     jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
@@ -258,7 +268,7 @@ def skel_pred():
     num_frames = 16
     sample_stride = 2
     data_stride = 16
-    designated_split = 'train'
+    designated_split = 'test'
 
     prompt_template_key = 'fixed'
     # prompt_template_key = 'simple'
@@ -664,7 +674,7 @@ def prepare_vqvae(mode='joint3d', sample_stride=1):
     skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
 
     if mode == 'joint3d' and sample_stride == 1:
-        ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
+        ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d/models/checkpoint_epoch_113_step_500000/model.safetensors"
     elif mode == 'joint3d' and sample_stride == 2:
         ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d_f64s2/models/checkpoint_epoch_148_step_240000/model.safetensors"
     else:
@@ -680,6 +690,6 @@ def prepare_vqvae(mode='joint3d', sample_stride=1):
 
 
 if __name__ == "__main__":
-    skel_pred()
+    # skel_pred()
     # text_to_skel()
-    # img_to_skel()
+    img_to_skel()
