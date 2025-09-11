@@ -142,7 +142,7 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     # skeleton_processor.eval()
     # for param in skeleton_processor.parameters():
     #     param.requires_grad = False
-    setattr(processor, 'skeleton_processor', [])
+    setattr(processor, 'skeleton_processor', model_args.get_skel_str_func)
     #########################################################################################
 
     return {"tokenizer": tokenizer, "processor": processor}

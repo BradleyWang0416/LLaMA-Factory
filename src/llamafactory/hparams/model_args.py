@@ -185,6 +185,18 @@ class BaseModelArguments:
             "help": " "
         },
     )
+    get_skel_str_func: str = field(
+        default=None,
+        metadata={
+            "help": " "
+        },
+    )
+    parse_skel_str_func: str = field(
+        default=None,
+        metadata={
+            "help": " "
+        },
+    )
     #########################################################################################
 
     def __post_init__(self):
