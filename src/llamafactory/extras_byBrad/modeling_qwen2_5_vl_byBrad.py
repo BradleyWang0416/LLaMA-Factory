@@ -226,6 +226,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         skeleton_indices: Optional[torch.LongTensor] = None,  # 骨架数据的索引
         skeleton_poses: Optional[torch.FloatTensor] = None,  # 骨架数据的3D姿态
         skeleton_grid_thw: Optional[torch.LongTensor] = None,  # 骨架数据的网格尺寸
+        source_slice_id = None,  # 用于解码的源切片ID
         # --------------------
         **kwargs: Unpack[TransformersKwargs],
     ) -> Union[tuple, Qwen2_5_VLCausalLMOutputWithPast]:
@@ -303,7 +304,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
                                 # 裁剪真实姿态以匹配预测的长度
                                 T_pred = pred_poses.size(1)
-                                true_poses_sliced = skeleton_poses[0][:T_pred, :, :]
+                                true_poses_sliced = skeleton_poses[0][None, :T_pred, :, :]
 
                                 # 计算 MPJPE 损失
                                 if true_poses_sliced.size(1) == T_pred:
@@ -311,8 +312,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
 
                 except Exception as e:
-                    import warnings
-                    warnings.warn(f"Could not compute MPJPE loss: {e}")
+                    print(f"Could not compute MPJPE loss: {e}")
                     mpjpe_loss = None
             ###########################################################################################################
 
