@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Optional
 import re
 import numpy as np
 import torch
-
+import os
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
 from ...extras.logging import get_logger
@@ -241,11 +241,22 @@ def run_sft(
                 MOTION_LABEL.append(motion_label)
                 MOTION_PRED.append(motion_prediction)
                 success_log.append(sample_id)
-                continue
 
 
 
-                viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
+                source_slice_id_path = dataset_module["eval_dataset"][sample_id]['skeletons'][0].replace('skeleton_code', 'source_slice_id')
+                if os.path.exists(source_slice_id_path):
+                    source_slice_id = np.load(source_slice_id_path)   # (T,)
+
+                    if 'h36m_data' not in locals():
+                        import joblib
+                        h36m_data = joblib.load("/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl")
+                    
+                    camera_name = h36m_data['test']['camera_name'][source_slice_id]
+
+
+
+                # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
                 # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=True, fig_title=f"{sample_id}", file_folder='.', file_name=f'{sample_id:06d}')
 
                 

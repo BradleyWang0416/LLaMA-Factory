@@ -275,9 +275,6 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
                     self._init_skeleton_parser() # 确保解析器已初始化
 
-                    # 从 logits 中获取预测的 token ID (不带梯度)
-                    pred_ids = torch.argmax(logits.detach(), dim=-1)    # [1,352]
-
                     # 步骤 1: 识别真实 `labels` 中的骨架 token 区域
                     # is_gt_skeleton_mask: [B, L], bool, 标记哪些位置应该是骨架 token
                     is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)    # [1,352]
@@ -286,29 +283,47 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                     if torch.any(is_gt_skeleton_mask):
                         # 步骤 2: 获取模型在这些真实骨架区域的预测
                         # pred_ids_in_gt_skel_region: [N], N 是骨架 token 的总数
-                        pred_ids_in_gt_skel_region = pred_ids[is_gt_skeleton_mask]
+                        skel_logits = logits[is_gt_skeleton_mask]
 
-                        # 步骤 3: 验证所有这些预测是否也都是有效的骨架 token
-                        # all_preds_are_valid: bool, 检查是否所有预测都在骨架 token ID 集合中
-                        all_preds_are_valid = torch.isin(pred_ids_in_gt_skel_region, self._skeleton_token_id_tensor).all()
+                        # 步骤 3: (可微分方式) 计算期望的VQ-VAE嵌入
+                        # 3.1 仅提取与骨架token相关的logits
+                        # skeleton_token_logits: [N, num_skeleton_tokens]
+                        skeleton_token_logits = skel_logits[:, self._skeleton_token_id_tensor]
 
-                        # 步骤 4: 如果所有预测都有效，才计算 MPJPE
-                        if all_preds_are_valid:
-                            # 从有效的预测 token ID 中解析出 VQ-VAE 索引
-                            # 注意：这里我们直接使用 pred_ids_in_gt_skel_region，因为它已经被验证过
-                            pred_skel_indices = self._parse_skeleton_indices_from_ids(pred_ids_in_gt_skel_region)
+                        # 3.2 计算这些骨架token的概率分布
+                        # skeleton_probs: [N, num_skeleton_tokens]
+                        skeleton_probs = torch.softmax(skeleton_token_logits, dim=-1)
 
-                            if pred_skel_indices.numel() > 0:
-                                # 解码预测的索引以获得 3D 姿态
-                                pred_poses = self.skeleton_processor.decode(pred_skel_indices)
+                        # 3.3 获取VQ-VAE码本(codebook)的嵌入向量
+                        # vq_embeddings: [num_skeleton_tokens, code_dim]
+                        # 注意: VQ-VAE的参数需要是可访问的，并且不参与梯度更新
+                        vq_embeddings = self.skeleton_processor.vq.codebook.detach()
 
-                                # 裁剪真实姿态以匹配预测的长度
-                                T_pred = pred_poses.size(1)
-                                true_poses_sliced = skeleton_poses[0][None, :T_pred, :, :]
+                        # 3.4 通过加权平均计算期望的嵌入
+                        # expected_embedding: [N, code_dim]
+                        expected_embedding = torch.matmul(skeleton_probs, vq_embeddings)
 
-                                # 计算 MPJPE 损失
-                                if true_poses_sliced.size(1) == T_pred:
-                                    mpjpe_loss = self.compute_mpjpe_loss(pred_poses, true_poses_sliced)
+                        # 步骤 4: 解码期望嵌入以获得3D姿态
+                        # 假设每17个token为一帧
+                        num_frames = expected_embedding.size(0) // 17
+                        if num_frames > 0:
+                            # 截断并重塑以匹配解码器输入
+                            num_tokens_to_decode = num_frames * 17
+                            quantized = expected_embedding[:num_tokens_to_decode].view(1, num_frames, 17, -1)
+                            
+                            # 使用解码器直接从量化嵌入解码姿态
+                            # 注意: skeleton_processor.decode需要能处理嵌入向量
+                            # 如果它只能处理索引，则需要修改或使用其内部的解码器部分
+                            # 这里我们假设可以直接调用解码器
+                            pred_poses = self.skeleton_processor.decode_from_quantized(quantized)
+                            pred_poses = pred_poses.permute(0, 2, 3, 1) # [B, T, J, 3]
+                            # 裁剪真实姿态以匹配预测的长度
+                            T_pred = pred_poses.size(1)
+                            true_poses_sliced = skeleton_poses[0][None, :T_pred, :, :]
+
+                            # 计算 MPJPE 损失
+                            if true_poses_sliced.size(1) == T_pred:
+                                mpjpe_loss = self.compute_mpjpe_loss(pred_poses, true_poses_sliced)
 
 
                 except Exception as e:

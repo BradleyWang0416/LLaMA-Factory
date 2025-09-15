@@ -121,6 +121,16 @@ JOINT_GROUP_MAP = {
 }
 BODY_PART_ORDER = ["torso", "left_arm", "right_arm", "left_leg", "right_leg"]
 #########################################################################################
+# ADDED BY BRADLEY 250906 ###############################################################
+JOINT_ORDER = [
+    "Hips", "Right_Hip", "Right_Knee", "Right_Foot",
+    "Left_Hip", "Left_Knee", "Left_Foot",
+    "Spine", "Thorax", "Neck/Nose", "Head",
+    "Left_Shoulder", "Left_Elbow", "Left_Wrist",
+    "Right_Shoulder", "Right_Elbow", "Right_Wrist"
+]
+JOINT_TOKENS = {name: (f"<{name}>", f"</{name}>") for name in JOINT_ORDER}
+#########################################################################################
 
 class AttentionFunction(str, Enum):
     AUTO = "auto"

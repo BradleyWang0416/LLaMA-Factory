@@ -21,14 +21,19 @@
 
 # CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
 # LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit.log
-CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom10000.yaml
-LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom10000_wMPJPE.log
+CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom20000.yaml
+LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom20000_wMPJPE.log
 
-CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/skelPred_f16s1d16.yaml
-LOG=exp_skelPred_f16s1d16_bodypart_aware_explicit.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/skelPred_f16s1d16.yaml
+# LOG=exp_skelPred_f16s1d16_bodypart_aware_explicit.log
+
+# CONFIG=examples/new_byBradley/train_lora/joint_aware_explicit/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_joint_aware_explicit.log
+# CONFIG=examples/new_byBradley/train_lora/joint_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_joint_aware_explicit_wMPJPE.log
 
 
-CUDA_VISIBLE_DEVICES=4,5,6 \
+CUDA_VISIBLE_DEVICES=3,4,5,6 \
     nohup \
     llamafactory-cli \
     train \
@@ -36,7 +41,7 @@ CUDA_VISIBLE_DEVICES=4,5,6 \
     > $LOG &
 
 # ALLOW_EXTRA_ARGS=true \
-# CUDA_VISIBLE_DEVICES=5 \
+# CUDA_VISIBLE_DEVICES=0 \
 #     torchrun --nproc_per_node 1 -m debugpy --listen 5678 --wait-for-client \
 #     src/llamafactory/launcher.py \
 #     $CONFIG

@@ -461,3 +461,17 @@ class SKEL_VQVAE(nn.Module):
         # 3. Permute the output to the standard [B, T, J, C] format
         # Input: [B, C, T, J], Output: [B, T, J, C]
         return reconstructed_x.permute(0, 2, 3, 1).contiguous()
+
+    def decode_from_quantized(self, quantized: torch.Tensor) -> torch.Tensor:
+        """
+        直接从量化后的嵌入向量解码出3D姿态。
+        Args:
+            quantized (torch.Tensor): 量化后的嵌入向量，形状为 (B, T, J, D)
+        Returns:
+            torch.Tensor: 解码后的3D姿态，形状为 (B, T_out, J_out, 3)
+        """
+        b, t, j, d = quantized.shape
+        # 解码器输入需要 (B, D, T, J)
+        quantized_reshaped = quantized.permute(0, 3, 1, 2).contiguous()
+        out = self.decoder(quantized_reshaped)
+        return out

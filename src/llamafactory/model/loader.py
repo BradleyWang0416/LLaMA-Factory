@@ -275,7 +275,7 @@ def load_model(
     skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
     skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
     skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
-    setattr(model.model.model.config, 'skeleton_config', {
+    setattr(model.config, 'skeleton_config', {
         'skeleton_token_indices': skeleton_token_indices,
         'skeleton_start_token_id': skeleton_start_token_id,
         'skeleton_end_token_id': skeleton_end_token_id,

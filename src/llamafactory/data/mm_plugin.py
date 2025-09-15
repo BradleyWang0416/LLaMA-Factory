@@ -352,6 +352,7 @@ class MMPluginMixin:
         POSES = []
         CODEBOOK_INDICES = []
         GRID_SHAPES = []
+        SOURCE_SLICE_ID = []
         for skeleton_indices_path in skeletons:
             """
             if isinstance(skeleton, str):
@@ -390,10 +391,17 @@ class MMPluginMixin:
             grid_shape = [1, t_quant, j_quant] # [t, h, w]
             GRID_SHAPES.append(grid_shape)
 
+            source_slice_id_path = skeleton_indices_path.replace('skeleton_code', 'source_slice_id')
+            if os.path.exists(source_slice_id_path):
+                source_slice_id = np.load(source_slice_id_path)  # [3], [C, T_quant, J_quant]
+                source_slice_id = torch.from_numpy(source_slice_id)
+                SOURCE_SLICE_ID.append(source_slice_id)
+
         return {
             "skeleton_indices": CODEBOOK_INDICES,  # 相当于 image 模态对应的 pixel_values
             "skeleton_poses": POSES,
             "skeleton_grid_thw": torch.tensor(GRID_SHAPES, dtype=torch.long),
+            "source_slice_id": SOURCE_SLICE_ID,
             }
     #########################################################################################
 

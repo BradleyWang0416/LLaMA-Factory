@@ -87,6 +87,10 @@ PROMPT_TEMPLATES = {
         'bodypart_aware_explicit': [
             "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
+        'joint_aware_explicit': [
+            "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. "
+            "Your response must be structured for each frame using all 17 joint tags: <Hips>...</Hips><Right_Hip>...</Right_Hip><Right_Knee>...</Right_Knee><Right_Foot>...</Right_Foot><Left_Hip>...</Left_Hip><Left_Knee>...</Left_Knee><Left_Foot>...</Left_Foot><Spine>...</Spine><Thorax>...</Thorax><Neck/Nose>...</Neck/Nose><Head>...</Head><Left_Shoulder>...</Left_Shoulder><Left_Elbow>...</Left_Elbow><Left_Wrist>...</Left_Wrist><Right_Shoulder>...</Right_Shoulder><Right_Elbow>...</Right_Elbow><Right_Wrist>...</Right_Wrist>.",
+        ],
     },
     'skel_pred': {
         'fixed': [
@@ -119,6 +123,9 @@ PROMPT_TEMPLATES = {
         'bodypart_aware_explicit': [
             "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Use <|frame_break|> to separate frames. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
+        'joint_aware_explicit': [
+            # TODO
+        ],
     },
     'text_to_skel': {
         'fixed': [
@@ -149,6 +156,9 @@ PROMPT_TEMPLATES = {
         ],
         'bodypart_aware_explicit': [
             "Generate the skeleton motion for the description: \"<text_description>\". Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'joint_aware_explicit': [
+            # TODO
         ],
     },
 }
@@ -183,7 +193,8 @@ def img_to_skel():
     # prompt_template_key = 'fixed'
     # prompt_template_key = 'simple'
     # prompt_template_key = 'bodypart_aware'
-    prompt_template_key = 'bodypart_aware_explicit'
+    # prompt_template_key = 'bodypart_aware_explicit'
+    prompt_template_key = 'joint_aware_explicit'
 
     save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
     jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
@@ -203,8 +214,9 @@ def img_to_skel():
     CODEBOOK_INDICES = []
     QUANT_SHAPES = []
     IMAGES = []
+    SLICED_INDICES = []
     for batch in tqdm(img2skel_dataloader):
-        pose_seq, img_src, _ = batch
+        pose_seq, img_src, _, slice_indices = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -217,6 +229,7 @@ def img_to_skel():
         CODEBOOK_INDICES.append(codebook_indices)
         QUANT_SHAPES.append(quant_shape)
         IMAGES = IMAGES + img_src
+        SLICED_INDICES = SLICED_INDICES + slice_indices
     POSES = np.concatenate(POSES, axis=0)                      # (N, T, 17, 3)
     CODEBOOK_INDICES = np.concatenate(CODEBOOK_INDICES, axis=0)  # (N, quant_t, 17)
     QUANT_SHAPES = np.concatenate(QUANT_SHAPES, axis=0)          # (N, 3)
@@ -249,6 +262,13 @@ def img_to_skel():
         quant_shape = QUANT_SHAPES[sample_id]           # (3)
         np.save(quant_shape_save_file, quant_shape)
 
+        source_slice_id_save_path = f"{save_path}/source_slice_id"
+        source_slice_id_save_file = os.path.join(source_slice_id_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(source_slice_id_save_path): 
+            os.makedirs(source_slice_id_save_path)
+        source_slice_id = SLICED_INDICES[sample_id]
+        np.save(source_slice_id_save_file, source_slice_id)
+
         task_item = easydict.EasyDict(TASK_TEMPLATE['img_to_skel'])
         chosen_prompt = random.choice(PROMPT_TEMPLATES['img_to_skel'][prompt_template_key])
         task_item.conversations[0]["value"] = chosen_prompt
@@ -268,7 +288,7 @@ def skel_pred():
     num_frames = 16
     sample_stride = 1
     data_stride = 16
-    designated_split = 'train'
+    designated_split = 'test'
 
     # prompt_template_key = 'fixed'
     # prompt_template_key = 'simple'
@@ -296,8 +316,9 @@ def skel_pred():
     POSES = {'history': [], 'future': []}
     CODEBOOK_INDICES = {'history': [], 'future': []}
     QUANT_SHAPES = {'history': [], 'future': []}
+    SLICED_INDICES = []
     for batch in tqdm(skel_dataloader):
-        pose_seq, _, _ = batch
+        pose_seq, _, _, slice_indices = batch
         # pose_seq: (B,2T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -318,6 +339,9 @@ def skel_pred():
         CODEBOOK_INDICES['future'].append(codebook_indices_future)
         QUANT_SHAPES['history'].append(quant_shape_history)
         QUANT_SHAPES['future'].append(quant_shape_future)
+
+        SLICED_INDICES = SLICED_INDICES + slice_indices
+
     POSES = {k: np.concatenate(v, axis=0) for k, v in POSES.items()}
     CODEBOOK_INDICES = {k: np.concatenate(v, axis=0) for k, v in CODEBOOK_INDICES.items()}
     QUANT_SHAPES = {k: np.concatenate(v, axis=0) for k, v in QUANT_SHAPES.items()}
@@ -369,6 +393,13 @@ def skel_pred():
         np.save(history_quant_shape_save_file, quant_shape_his)
         np.save(future_quant_shape_save_file, quant_shape_fut)
 
+        source_slice_id_save_path = f"{save_path}/source_slice_id"
+        source_slice_id_save_file = os.path.join(source_slice_id_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(source_slice_id_save_path): 
+            os.makedirs(source_slice_id_save_path)
+        source_slice_id = SLICED_INDICES[sample_id]
+        np.save(source_slice_id_save_file, source_slice_id)
+
         task_item = easydict.EasyDict(TASK_TEMPLATE['skel_pred'])
         chosen_prompt = random.choice(PROMPT_TEMPLATES['skel_pred'][prompt_template_key])
         task_item.conversations[0]["value"] = chosen_prompt
@@ -413,6 +444,7 @@ def text_to_skel():
     QUANT_SHAPES = []
     CAPTIONS = []
     for batch in tqdm(img2skel_dataloader):
+        raise NotImplementedError("need to modify SkeletonDataset to return slice_id for each sample")
         pose_seq, _, caption = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
@@ -652,23 +684,25 @@ class SkeletonDataset(torch.utils.data.Dataset):
         # caption could be None if it's a sample from pose-image sets (e.g., H36M)
         poses = self.data_dict[dt_file]['poses'][slice_id]
 
-        idx = random.randint(0, poses.shape[0] - self.num_frames)
-        poses = poses[idx:idx + self.num_frames]
+        if caption is not None:
+            idx = random.randint(0, poses.shape[0] - self.num_frames)
+            poses = poses[idx:idx + self.num_frames]
 
         if 'img_src' in self.data_dict[dt_file]:
             img_src = self.data_dict[dt_file]['img_src'][slice_id].tolist()
         else:
             img_src = []
 
-        return torch.from_numpy(poses).float(), img_src, caption
+        return torch.from_numpy(poses).float(), img_src, caption, slice_id
     
 
 def custom_collate_fn(batch):    
     poses_list = [item[0] for item in batch]
     img_src_list = [item[1] for item in batch]
     caption_list = [item[2] for item in batch]
+    slice_id_list = [item[3] for item in batch]
     batched_poses = torch.stack(poses_list, dim=0)
-    return batched_poses, img_src_list, caption_list
+    return batched_poses, img_src_list, caption_list, slice_id_list
 
 def prepare_vqvae(mode='joint3d', sample_stride=1):
     encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
@@ -693,6 +727,6 @@ def prepare_vqvae(mode='joint3d', sample_stride=1):
 
 
 if __name__ == "__main__":
-    skel_pred()
+    # skel_pred()
     # text_to_skel()
-    # img_to_skel()
+    img_to_skel()

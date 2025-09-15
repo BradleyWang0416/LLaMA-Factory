@@ -916,5 +916,23 @@
       "messages": "conversations",
       "skeletons": "skeletons"
     }
+  },
+  "vid_to_skel_f16s1d16_joint_aware_explicit_train": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s1d16_joint_aware_explicit/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "vid_to_skel_f16s1d16_joint_aware_explicit_test": {
+    "file_name": "custom_dataset_byBrad/vid_to_skel/f16s1d16_joint_aware_explicit/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
   }
 }

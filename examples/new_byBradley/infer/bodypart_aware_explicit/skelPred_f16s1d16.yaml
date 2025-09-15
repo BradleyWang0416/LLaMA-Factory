@@ -1,13 +1,13 @@
-model_name_or_path: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/merge/checkpoint-19000
+model_name_or_path: saves/skel_pred_f16s1d16_bodypart_aware_explicit/merge/checkpoint-20000
 
-eval_dataset: vid_to_skel_f16s1d16_bodypart_aware_explicit_test
+eval_dataset: skel_pred_f16s1d16_bodypart_aware_explicit_test
 
 vqvae_ckpt: /home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d/models/checkpoint_epoch_113_step_500000/model.safetensors  # only used in infer
 
 get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
 parse_skel_str_func: parse_skeleton_token_str_wBodyPart   # only used in infer
 
-max_samples: 512
+max_samples: 256
 
 # add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
 # add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
