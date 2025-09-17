@@ -147,29 +147,56 @@ def run_sft(
     if training_args.do_predict:
 
 
+        if model_args.vqvae_ckpt is not None:
+            print('\n'.join(['Warning!!! using vqvae from llamafactory.extras_byBrad.vqvae is deprecated, please use `hybrid_vqvae` instead.' for _ in range(99)]))
 
+            from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+            from safetensors.torch import load_file
+            encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+            vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+            decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+            skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
 
-        from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
-        from safetensors.torch import load_file
-        encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-        vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-        decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-        skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+            ckpt_path = model_args.vqvae_ckpt
+            state_dict = load_file(ckpt_path, device="cpu")
+            skeleton_processor.load_state_dict(state_dict)
+            skeleton_processor.eval()
+            for param in skeleton_processor.parameters():
+                param.requires_grad = False
+            skeleton_processor = skeleton_processor.cuda()
+        else:
+            from safetensors.torch import load_file as load_safetensors
+            sys.path.append('/home/wxs/MTVCrafter/')
+            from models import HYBRID_VQVAE
+            sys.path.remove('/home/wxs/MTVCrafter/')
+            skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
+                                              model_args.vqvae_config.vqvae_config.decoder,
+                                              model_args.vqvae_config.vqvae_config.vq, 
+                                              vision_config=model_args.vqvae_config.vision_config, 
+                                              joint_data_type=model_args.vqvae_config.vqvae_config.joint_data_type,
+                                              )
 
-
-
-        ckpt_path = model_args.vqvae_ckpt
-        state_dict = load_file(ckpt_path, device="cpu")
-        skeleton_processor.load_state_dict(state_dict)
-        skeleton_processor.eval()
-        for param in skeleton_processor.parameters():
-            param.requires_grad = False
-        skeleton_processor = skeleton_processor.cuda()
+            vqvae_ckpt = model_args.vqvae_config.vqvae_config.resume_path
+            safetensors_path = os.path.join(vqvae_ckpt, "model.safetensors")
+            pytorch_bin_path = os.path.join(vqvae_ckpt, "pytorch_model.bin")
+            if os.path.exists(safetensors_path):
+                print(f"Loading model from {safetensors_path}")
+                state_dict = load_safetensors(safetensors_path, device="cpu")
+            elif os.path.exists(pytorch_bin_path):
+                print(f"Loading model from {pytorch_bin_path}")
+                state_dict = torch.load(pytorch_bin_path, map_location="cpu")
+            else:
+                raise FileNotFoundError(f"Neither model.safetensors nor pytorch_model.bin found in {vqvae_ckpt}")
+            skeleton_processor.load_state_dict(state_dict, strict=True)
+            skeleton_processor.eval()
+            for param in skeleton_processor.parameters():
+                param.requires_grad = False
+            skeleton_processor = skeleton_processor.cuda()
 
 
         
 
-        '''
+        """
         # 这段代码是为了在一个独立的样本上进行推理, 不用数据集对象包装好的样本 ###############################################################
         new_video_frames_paths = [f"/data2/wxs/DATASETS/Human3.6M_MMPose/processed/images_fps50_cropped_192x256/S1/S1_Waiting_1.54138969/S1_Waiting_1.54138969_{img:06d}.jpg" 
                                   for img in range(1054,1070)]
@@ -201,7 +228,7 @@ def run_sft(
         except:
             print(f'[Custom Sample] shape mismatch: {[len(tmp) for tmp in custom_predict_motion_id]}. Skipping this sample')
         ################################################################################################################################
-        '''
+        """
 
         get_skel_str_func = globals()[model_args.get_skel_str_func]
         # same as: globals()[tokenizer_module['processor']['skeleton_processor']]
@@ -271,6 +298,25 @@ def run_sft(
         mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
                                    - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
         mpjpe_all = mpjpe_all * 1000
+
+
+        try:
+            skeleton_npy_path_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
+            skeleton_scale = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_scale')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+            skeleton_offset = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_transl')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+
+            MOTION_PRED_PIX = (MOTION_PRED + skeleton_offset) * skeleton_scale
+            MOTION_LABEL_PIX = (MOTION_LABEL + skeleton_offset) * skeleton_scale
+
+            factor_2_5d = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','factor_2_5d')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, None]     # (N,T,1,1)
+            MOTION_PRED_MM = MOTION_PRED_PIX * factor_2_5d
+            MOTION_LABEL_MM = MOTION_LABEL_PIX * factor_2_5d
+
+            MOTION_PRED_ROOTREL = MOTION_PRED_MM - MOTION_PRED_MM[...,0:1,:]
+            MOTION_LABEL_ROOTREL = MOTION_LABEL_MM - MOTION_LABEL_MM[...,0:1,:]
+            wmpjpe_all = np.linalg.norm(MOTION_LABEL_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
+        except:
+            pass
 
 
 

@@ -934,5 +934,23 @@
       "videos": "videos",
       "skeletons": "skeletons"
     }
+  },
+  "Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_train": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_test": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
   }
 }

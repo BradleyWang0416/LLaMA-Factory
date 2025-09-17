@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Optional, Union, Tuple
 import types
 import torch
@@ -17,7 +18,9 @@ from transformers.utils import can_return_tuple, auto_docstring
 from transformers.loss.loss_utils import fixed_cross_entropy, ForCausalLMLoss
 from safetensors.torch import load_file
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
-
+sys.path.append('/home/wxs/MTVCrafter/')
+from models import HYBRID_VQVAE
+sys.path.remove('/home/wxs/MTVCrafter/')
 
 class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGeneration):
     def __init__(self, config: Qwen2_5_VLConfig, **kwargs_byBrad):
@@ -28,12 +31,27 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         self.mpjpe_success_count = 0
 
         ########## VQVAE PART #####################################################################################################################   
-        self.vqvae_ckpt = kwargs_byBrad['vqvae_ckpt']
+        if 'vqvae_ckpt' in kwargs_byBrad:
+            print('\n'.join(['Warning!!! `vqvae_ckpt` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+            self.vqvae_ckpt = kwargs_byBrad['vqvae_ckpt']
         
-        encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-        vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-        decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-        self._skeleton_processor_container = [SkeletonProcessor(encoder, decoder, vq)]
+            encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+            vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+            decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+            self._skeleton_processor_container = [SkeletonProcessor(encoder, decoder, vq)]
+        else:
+            ################################################# ADDED BY BRADLEY 250917 #################################################
+            vqvae_config = kwargs_byBrad['vqvae_config']
+            self.vqvae_config = vqvae_config
+            # vqvae_class = vqvae_config.vqvae_config.vqvae_class
+
+            self.vqvae_ckpt = vqvae_config.vqvae_config.resume_path
+            self._skeleton_processor_container = [HYBRID_VQVAE(vqvae_config.vqvae_config.encoder,
+                                                              vqvae_config.vqvae_config.decoder, 
+                                                              vqvae_config.vqvae_config.vq, 
+                                                              vision_config=vqvae_config.vision_config, 
+                                                              joint_data_type=vqvae_config.vqvae_config.joint_data_type)]
+
         for param in self._skeleton_processor_container[0].parameters():
             param.requires_grad = False
         self._skeleton_processor_container[0].eval()
@@ -52,7 +70,17 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         print(f"Loading VQ-VAE weights from {self.vqvae_ckpt} to device: {device}")
         
         # 从文件加载权重，直接加载到目标设备
-        state_dict = load_file(self.vqvae_ckpt, device=str(device))
+        try:
+            safetensors_path = os.path.join(self.vqvae_ckpt, "model.safetensors")
+            pytorch_bin_path = os.path.join(self.vqvae_ckpt, "pytorch_model.bin")
+            if os.path.exists(safetensors_path):
+                print(f"Loading model from {safetensors_path}")
+                state_dict = load_safetensors(safetensors_path, device="cpu")
+            elif os.path.exists(pytorch_bin_path):
+                print(f"Loading model from {pytorch_bin_path}")
+                state_dict = torch.load(pytorch_bin_path, map_location="cpu")
+        except:
+            state_dict = load_file(self.vqvae_ckpt, device=str(device))
         self.skeleton_processor.load_state_dict(state_dict, assign=True)
         self.is_vqvae_weights_loaded = True
 
@@ -74,11 +102,21 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                 # 我们需要重新在目标设备上创建它。
                 # 这会创建一个与原始模块结构相同但参数在目标设备上的新模块。
                 print(f"Re-initializing SkeletonProcessor from meta to device: {device}")
-                new_processor = type(processor)(
-                    encoder=type(processor.encoder)(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1]),
-                    decoder=type(processor.decoder)(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0]),
-                    vq=type(processor.vq)(nb_code=8192, code_dim=3072, is_train=False),
-                ).to(device)
+                if not isinstance(processor, HYBRID_VQVAE):
+                    print('\n'.join(['Warning!!! `SKEL_VQVAE` is deprecated, please use `HYBRID_VQVAE` instead.' for _ in range(99)]))
+                    new_processor = type(processor)(
+                        encoder=type(processor.encoder)(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1]),
+                        decoder=type(processor.decoder)(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0]),
+                        vq=type(processor.vq)(nb_code=8192, code_dim=3072, is_train=False),
+                    ).to(device)
+                else:
+                    new_processor = type(processor)(
+                        self.vqvae_config.vqvae_config.encoder,
+                        self.vqvae_config.vqvae_config.decoder,
+                        self.vqvae_config.vqvae_config.vq,
+                        vision_config=self.vqvae_config.vision_config,
+                        joint_data_type=self.vqvae_config.vqvae_config.joint_data_type
+                    ).to(device)
                 
                 # 冻结参数并设置为评估模式
                 for param in new_processor.parameters():

@@ -1,13 +1,13 @@
 ### model
 model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
-adapter_name_or_path: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/train/checkpoint-16500
+adapter_name_or_path: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/train/checkpoint-25500
 template: qwen2_vl
 trust_remote_code: true
 
 
 
 
-export_dir: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/merge/checkpoint-16500
+export_dir: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/merge/checkpoint-25500
 export_size: 5
 export_device: cpu  # choices: [cpu, auto]
 export_legacy_format: false

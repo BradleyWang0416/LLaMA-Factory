@@ -22,6 +22,7 @@ from typing import Any, Literal, Optional, Union
 import torch
 from transformers.training_args import _convert_str_dict
 from typing_extensions import Self
+import sys
 
 from ..extras.constants import AttentionFunction, EngineName, QuantizationMethod, RopeScaling
 
@@ -204,6 +205,12 @@ class BaseModelArguments:
         },
     )
     #########################################################################################
+    # ADDED BY BRADLEY 250917 ####################################################################
+    vqvae_config: str = field(
+        default=None,
+        metadata={"help": "must be a .py file path"},
+    )
+    #########################################################################################
 
     def __post_init__(self):
         if self.model_name_or_path is None:
@@ -220,6 +227,24 @@ class BaseModelArguments:
 
         if self.add_special_tokens is not None:  # support multiple special tokens
             self.add_special_tokens = [token.strip() for token in self.add_special_tokens.split(",")]
+
+        # ADDED BY BRADLEY 250917 ####################################################################
+        if self.codebook_size is not None or self.vqvae_ckpt is not None:
+            print('\n'.join(['Warning!!! `codebook_size` and `vqvae_ckpt` are deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+        if self.vqvae_config is not None:
+            assert self.vqvae_config.endswith('.py'), f"`vqvae_config` must be a .py file path, but got {self.vqvae_config}."
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("vqvae_config_module", self.vqvae_config)
+            vqvae_config_module = importlib.util.module_from_spec(spec)
+            sys.modules["vqvae_config_module"] = vqvae_config_module
+            spec.loader.exec_module(vqvae_config_module)
+            from easydict import EasyDict as edict
+            self.vqvae_config = edict(
+                vqvae_config=vqvae_config_module.vqvae_config,
+                vision_config=vqvae_config_module.vision_config,
+            )
+        ##############################################################################################
+        
 
 
 @dataclass

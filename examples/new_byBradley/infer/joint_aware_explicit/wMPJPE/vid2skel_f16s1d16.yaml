@@ -1,4 +1,4 @@
-model_name_or_path: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/merge/checkpoint-16500
+model_name_or_path: saves/vid_to_skel_f16s1d16_joint_aware_explicit_wMPJPE/merge/checkpoint-25500
 
 eval_dataset: vid_to_skel_f16s1d16_joint_aware_explicit_test
 

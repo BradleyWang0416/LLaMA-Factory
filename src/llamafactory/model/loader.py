@@ -272,7 +272,15 @@ def load_model(
     #########################################################################################
 
     # ADDED BY BRADLEY 250911 ###############################################################
-    skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
+    if model_args.codebook_size is not None:
+        print('\n'.join(['Warning!!! `model_args.codebook_size` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+        skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
+    #########################################################################################
+    # ADDED BY BRADLEY 250917 ###############################################################
+    else:
+        codebook_size = model_args.vqvae_config.vqvae_config.vq.nb_code
+        skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(codebook_size)])
+    #########################################################################################
     skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
     skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
     setattr(model.config, 'skeleton_config', {
@@ -280,6 +288,5 @@ def load_model(
         'skeleton_start_token_id': skeleton_start_token_id,
         'skeleton_end_token_id': skeleton_end_token_id,
     })
-    #########################################################################################
 
     return model

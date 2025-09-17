@@ -21,8 +21,8 @@
 
 # CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
 # LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit.log
-CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom20000.yaml
-LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom20000_wMPJPE.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom20000.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom20000_wMPJPE.log
 
 # CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/skelPred_f16s1d16.yaml
 # LOG=exp_skelPred_f16s1d16_bodypart_aware_explicit.log
@@ -31,6 +31,14 @@ LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom20000_wMPJPE.log
 # LOG=exp_vid2skel_f16s1d16_joint_aware_explicit.log
 # CONFIG=examples/new_byBradley/train_lora/joint_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
 # LOG=exp_vid2skel_f16s1d16_joint_aware_explicit_wMPJPE.log
+
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_wMPJPE.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/tmp.yaml
+# LOG=tmp.log
+
+CONFIG=examples/new_byBradley/train_lora/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train.yaml
+LOG=examples/new_byBradley/train_lora/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train.log
 
 
 CUDA_VISIBLE_DEVICES=3,4,5,6 \

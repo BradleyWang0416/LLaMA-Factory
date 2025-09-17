@@ -318,9 +318,11 @@ if __name__ == "__main__":
         SOURCE_DATA_DICT['slice_id'].append(torch.stack(batch['slice_id']).cpu().numpy())
         if task == 'Vid2Skel':
             SOURCE_DATA_DICT['image_sources'].append(batch['image_sources'])
+        if args.data_split == 'test':
+            SOURCE_DATA_DICT['factor_2_5d'].append(torch.stack(batch['factor_2_5d']).cpu().numpy())
 
         if 'debugpy' in sys.modules:
-            if len(SOURCE_DATA_DICT['skeleton_code']) >= 4:
+            if len(SOURCE_DATA_DICT['skeleton_code']) >= 32:
                 break
 
     for key in SOURCE_DATA_DICT:
@@ -331,26 +333,31 @@ if __name__ == "__main__":
 
 
     JSON_DATA_LIST = []
-    for name_key, data_npy in SOURCE_DATA_DICT.items():
-        if name_key in ['slice_id', 'image_sources']:
-            continue
-        save_path = os.path.join(source_data_save_dir, name_key)
-        if not os.path.exists(save_path): 
-            os.makedirs(save_path)
-        for sample_id in tqdm(range(len(SOURCE_DATA_DICT['slice_id']))):
+    for sample_id in tqdm(range(len(SOURCE_DATA_DICT['slice_id']))):
+        for name_key, data_npy in SOURCE_DATA_DICT.items():
+            if name_key in ['slice_id', 'image_sources']:
+                continue
+            save_path = os.path.join(source_data_save_dir, name_key)
+            if not os.path.exists(save_path): 
+                os.makedirs(save_path)
+
             name_suffix = f"slice{int(SOURCE_DATA_DICT['slice_id'][sample_id][0])}_{int(SOURCE_DATA_DICT['slice_id'][sample_id][-1]+1)}"
             save_file = os.path.join(save_path, f"h36m_{sample_id:06d}_{name_suffix}.npy")
             np.save(save_file, data_npy[sample_id])
 
-            task_item = edict.EasyDict(TASK_TEMPLATE[task])
-            chosen_prompt = random.choice(PROMPT_TEMPLATES[task][prompt_template_key])
-            task_item.conversations[0]["value"] = chosen_prompt
-            task_item.skeletons = [save_file]
-            if task == 'Vid2Skel':
-                task_item.videos = [SOURCE_DATA_DICT['image_sources'][sample_id].tolist()]
+            if name_key == 'skeleton_code':
+                skeleton_code_save_file = save_file
 
-            JSON_DATA_LIST.append(task_item)
+        task_item = edict.EasyDict(TASK_TEMPLATE[task])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES[task][prompt_template_key])
+        task_item.conversations[0]["value"] = chosen_prompt
+        task_item.skeletons = [skeleton_code_save_file]
+        if task == 'Vid2Skel':
+            task_item.videos = [SOURCE_DATA_DICT['image_sources'][sample_id].tolist()]
 
+        JSON_DATA_LIST.append(task_item)
+
+    print(f"Saving to {json_data_save_dir}. Total {len(JSON_DATA_LIST)} samples.")
     with open(json_data_save_dir, 'w') as f:
         for item in JSON_DATA_LIST:
             f.write(json.dumps(item) + '\n')

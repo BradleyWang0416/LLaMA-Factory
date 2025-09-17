@@ -1,4 +1,4 @@
-model_name_or_path: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit/merge/checkpoint-10000
+model_name_or_path: saves/vid_to_skel_f16s1d16_bodypart_aware_explicit_wMPJPE/merge/checkpoint-22000
 
 eval_dataset: vid_to_skel_f16s1d16_bodypart_aware_explicit_test
 

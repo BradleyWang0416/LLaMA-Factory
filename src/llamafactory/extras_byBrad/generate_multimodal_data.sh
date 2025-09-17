@@ -4,10 +4,10 @@ mode=infer
 
 
 joint_data_type=joint3d_image_normed
-get_item_list="['image_sources','slice_id']"
+get_item_list="['image_sources','slice_id','factor_2_5d']"
 prompt_template=BodypartAwareExplicit
 task=Vid2Skel
-data_split=train
+data_split=test
 resume_path=/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000
 
 BATCH_SIZE=64
