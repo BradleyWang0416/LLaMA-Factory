@@ -1,6 +1,6 @@
 ### model
 model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
-adapter_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train/checkpoint-15000
+adapter_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train/checkpoint-23000
 template: qwen2_vl
 trust_remote_code: true
 
@@ -10,7 +10,7 @@ resize_vocab: true
 vqvae_config: examples/new_byBradley/train_lora/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/vqvae_config.py
 
 
-export_dir: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/merge/checkpoint-15000
+export_dir: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/merge/checkpoint-23000
 export_size: 5
 export_device: cpu  # choices: [cpu, auto]
 export_legacy_format: false

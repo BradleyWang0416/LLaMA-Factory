@@ -19,7 +19,7 @@ from transformers.loss.loss_utils import fixed_cross_entropy, ForCausalLMLoss
 from safetensors.torch import load_file
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
 sys.path.append('/home/wxs/MTVCrafter/')
-from models import HYBRID_VQVAE
+from models import HYBRID_VQVAE # type: ignore
 sys.path.remove('/home/wxs/MTVCrafter/')
 
 class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGeneration):
@@ -75,7 +75,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             pytorch_bin_path = os.path.join(self.vqvae_ckpt, "pytorch_model.bin")
             if os.path.exists(safetensors_path):
                 print(f"Loading model from {safetensors_path}")
-                state_dict = load_safetensors(safetensors_path, device="cpu")
+                state_dict = load_file(safetensors_path, device="cpu")
             elif os.path.exists(pytorch_bin_path):
                 print(f"Loading model from {pytorch_bin_path}")
                 state_dict = torch.load(pytorch_bin_path, map_location="cpu")

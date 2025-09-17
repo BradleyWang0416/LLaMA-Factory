@@ -1,4 +1,4 @@
-model_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/merge/checkpoint-15000
+model_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/merge/checkpoint-23000
 
 eval_dataset: Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_test
 

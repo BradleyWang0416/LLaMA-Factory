@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 from ...extras_byBrad.convert_skel_token import *
 import sys
 sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
-from lib.utils.viz_skel_seq import viz_skel_seq_anim
+from lib.utils.viz_skel_seq import viz_skel_seq_anim # type: ignore
 
     
 
@@ -167,7 +167,7 @@ def run_sft(
         else:
             from safetensors.torch import load_file as load_safetensors
             sys.path.append('/home/wxs/MTVCrafter/')
-            from models import HYBRID_VQVAE
+            from models import HYBRID_VQVAE # type: ignore
             sys.path.remove('/home/wxs/MTVCrafter/')
             skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
                                               model_args.vqvae_config.vqvae_config.decoder,
@@ -295,9 +295,9 @@ def run_sft(
         MOTION_LABEL=np.stack(MOTION_LABEL,axis=0)        # [N,T,17,3]
         MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
 
-        mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
-                                   - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
-        mpjpe_all = mpjpe_all * 1000
+        # mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
+        #                            - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
+        # mpjpe_all = mpjpe_all * 1000
 
 
         try:

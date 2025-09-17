@@ -1,8 +1,8 @@
 from easydict import EasyDict as edict
 import sys
 sys.path.append('/home/wxs/MTVCrafter/')
-from config.vision_backbone import config as vision_config
-from config.vqvae import vqvae_config
+from config.vision_backbone import config as vision_config # type: ignore
+from config.vqvae import vqvae_config # type: ignore
 # from models import HYBRID_VQVAE
 sys.path.remove('/home/wxs/MTVCrafter/')
 

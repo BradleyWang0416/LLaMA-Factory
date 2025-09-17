@@ -1,7 +1,7 @@
 # CONFIG=examples/new_byBradley/infer/joint_aware_explicit/vid2skel_f16s1d16.yaml
-# CONFIG=examples/new_byBradley/infer/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
+CONFIG=examples/new_byBradley/infer/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
 
-CONFIG=examples/new_byBradley/infer/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
+# CONFIG=examples/new_byBradley/infer/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
 
 export PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT=5
 
