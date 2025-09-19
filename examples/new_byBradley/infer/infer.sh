@@ -5,7 +5,7 @@ CONFIG=examples/new_byBradley/infer/bodypart_aware_explicit/wMPJPE/vid2skel_f16s
 
 export PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT=5
 
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=6 \
     torchrun \
     -m debugpy --listen 5678 --wait-for-client \
     src/llamafactory/launcher.py \
