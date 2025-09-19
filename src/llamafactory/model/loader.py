@@ -46,6 +46,10 @@ from safetensors.torch import load_file
 from ..extras_byBrad.modeling_qwen2_5_vl_byBrad import Qwen2_5_VLForConditionalGenerationWithSkeleton
 from transformers import Qwen2_5_VLConfig
 #########################################################################################
+# ADDED BY BRADLEY 250829 ###############################################################
+from ..extras.constants import SKELETON_TOKEN_BASE
+#########################################################################################
+
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, ProcessorMixin
@@ -109,8 +113,8 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
     try:
         processor = AutoProcessor.from_pretrained(
             model_args.model_name_or_path,
-            use_fast=model_args.use_fast_tokenizer,
-            **init_kwargs,
+            use_fast=model_args.use_fast_tokenizer, # True
+            **init_kwargs,  # {'trust_remote_code': True, 'cache_dir': None, 'revision': 'main', 'token': None}
         )
     except ValueError:  # try another one
         processor = AutoProcessor.from_pretrained(
@@ -133,16 +137,16 @@ def load_tokenizer(model_args: "ModelArguments") -> "TokenizerModule":
         patch_processor(processor, tokenizer, model_args)
 
     # ADDED BY BRADLEY 250828 ###############################################################
-    encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-    vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-    decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-    skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
-    state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
-    skeleton_processor.load_state_dict(state_dict)
-    skeleton_processor.eval()
-    for param in skeleton_processor.parameters():
-        param.requires_grad = False
-    setattr(processor, 'skeleton_processor', skeleton_processor)
+    # encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+    # vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+    # decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+    # skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+    # state_dict = load_file("/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors", device="cpu")
+    # skeleton_processor.load_state_dict(state_dict)
+    # skeleton_processor.eval()
+    # for param in skeleton_processor.parameters():
+    #     param.requires_grad = False
+    setattr(processor, 'skeleton_processor', model_args.get_skel_str_func)
     #########################################################################################
 
     return {"tokenizer": tokenizer, "processor": processor}
@@ -266,5 +270,23 @@ def load_model(
     # setattr(model.model.model.config, 'skeleton_start_token_id', skeleton_start_token_id)
     # setattr(model.model.model.config, 'skeleton_end_token_id', skeleton_end_token_id)
     #########################################################################################
+
+    # ADDED BY BRADLEY 250911 ###############################################################
+    if model_args.codebook_size is not None:
+        print('\n'.join(['Warning!!! `model_args.codebook_size` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+        skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
+    #########################################################################################
+    # ADDED BY BRADLEY 250917 ###############################################################
+    else:
+        codebook_size = model_args.vqvae_config.vqvae_config.vq.nb_code
+        skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(codebook_size)])
+    #########################################################################################
+    skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
+    skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
+    setattr(model.config, 'skeleton_config', {
+        'skeleton_token_indices': skeleton_token_indices,
+        'skeleton_start_token_id': skeleton_start_token_id,
+        'skeleton_end_token_id': skeleton_end_token_id,
+    })
 
     return model

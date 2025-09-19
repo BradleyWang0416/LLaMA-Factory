@@ -1,0 +1,14 @@
+(llama_factory) wxs@dbcloud:~/LLaMA-Factory$ find -type l
+
+./data/source_data_byBrad
+./data/custom_dataset_byBrad
+./data/_multimodal_data_byBrad
+./data/demo_data_byBrad
+./src/llamafactory/extras_byBrad/viz_skel_seq.py
+./src/llamafactory/extras_byBrad/vqvae_experiment
+./saves
+./Qwen
+
+
+/home/wxs/LLaMA-Factory/Qwen/Qwen2.5-VL-7B-Instruct
+/home/wxs/LLaMA-Factory/data/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit

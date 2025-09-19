@@ -1,14 +1,55 @@
-CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_all3.yaml
+# CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_skelPred_f16s2d16.yaml
+# LOG=exp_skelPred_f16s2d16.log
 
-CUDA_VISIBLE_DEVICES=1,2,5,6 \
+# CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_text2skel_f64s2d64.yaml
+# LOG=exp_text2skel_f64s2d64.log
+
+# CONFIG=examples/new_byBradley/train_lora/qwen2_5vl_lora_sft_byBrad_vid2skel_f16s2d16.yaml
+# LOG=exp_vid2skel_f16s2d16.log
+
+# CONFIG=examples/new_byBradley/train_lora/NoBodyPartTag/skelPred_f16s2d16.yaml
+# LOG=exp_skelPred_f16s2d16_NoBodyPartTag.log
+
+# CONFIG=examples/new_byBradley/train_lora/NoBodyPartTag/text2skel_f64s2d64.yaml
+# LOG=exp_text2skel_f64s2d64_NoBodyPartTag.log
+
+# CONFIG=examples/new_byBradley/train_lora/NoBodyPartTag/vid2skel_f16s2d16.yaml
+# LOG=exp_vid2skel_f16s2d16_NoBodyPartTag.log
+
+# CONFIG=examples/new_byBradley/train_lora/AmsH36mPw3d/fixed/skelPred_f16s2d16.yaml
+# LOG=exp_vid2skel_f16s2d16_fixed_AmsH36mPw3d.log
+
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16_resumeFrom20000.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_resumeFrom20000_wMPJPE.log
+
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/skelPred_f16s1d16.yaml
+# LOG=exp_skelPred_f16s1d16_bodypart_aware_explicit.log
+
+# CONFIG=examples/new_byBradley/train_lora/joint_aware_explicit/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_joint_aware_explicit.log
+# CONFIG=examples/new_byBradley/train_lora/joint_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_joint_aware_explicit_wMPJPE.log
+
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/vid2skel_f16s1d16.yaml
+# LOG=exp_vid2skel_f16s1d16_bodypart_aware_explicit_wMPJPE.log
+# CONFIG=examples/new_byBradley/train_lora/bodypart_aware_explicit/wMPJPE/tmp.yaml
+# LOG=tmp.log
+
+CONFIG=examples/new_byBradley/train_lora/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train.yaml
+LOG=examples/new_byBradley/train_lora/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048/train.log
+
+
+CUDA_VISIBLE_DEVICES=3,4,5,6 \
     nohup \
     llamafactory-cli \
     train \
     $CONFIG \
-    > exp_all3.log &
+    > $LOG &
 
 # ALLOW_EXTRA_ARGS=true \
-# CUDA_VISIBLE_DEVICES=6 \
+# CUDA_VISIBLE_DEVICES=0 \
 #     torchrun --nproc_per_node 1 -m debugpy --listen 5678 --wait-for-client \
 #     src/llamafactory/launcher.py \
 #     $CONFIG

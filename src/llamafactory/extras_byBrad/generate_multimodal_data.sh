@@ -1,0 +1,80 @@
+# mode=debug
+mode=infer
+
+
+
+joint_data_type=joint3d_image_normed
+get_item_list="['image_sources','slice_id','factor_2_5d']"
+prompt_template=BodypartAwareExplicit
+task=Vid2Skel
+data_split=test
+resume_path=/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000
+
+BATCH_SIZE=64
+
+DATA_MODE=joint3d
+
+NUM_CODE=4096   # 8192
+CODE_DIM=2048   # 3072
+NUM_FRAME=16
+SAMPLE_STRIDE=1
+DATA_STRIDE=16
+processed_image_shape="[192,256]"
+HRNET_OUTPUT_LEVEL=3    # int or list. 0,1,2,3 分别对应输出 [B,32,H/4,W/4], [B,64,H/8,W/8], [B,128,H/16,W/16], [B,256,H/32,W/32] 的特征
+VISION_GUIDANCE_RATIO=0
+
+# save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}_aff192x256
+save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}
+
+
+
+load_data_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl
+load_image_source_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl
+load_bbox_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/bboxes_xyxy.pkl
+load_text_source_file=''
+return_extra="[['image']]"
+# data preprocessing config
+normalize=isotropic
+# image config
+filter_invalid_images=True
+backbone=hrnet_32
+
+
+
+if [ "$mode" = "debug" ]; then
+    DEBUG_ARGS="-m debugpy --listen 5678 --wait-for-client"
+else
+    DEBUG_ARGS="-u"
+fi
+
+
+
+CUDA_VISIBLE_DEVICES=0 \
+    python \
+    $DEBUG_ARGS \
+    src/llamafactory/extras_byBrad/generate_multimodal_data.py \
+    --joint_data_type ${joint_data_type} \
+    --get_item_list ${get_item_list} \
+    --prompt_template ${prompt_template} \
+    --task ${task} \
+    --data_split ${data_split} \
+    --save_dir ${save_dir} \
+    --resume_pth "${resume_path}" \
+    --batch_size ${BATCH_SIZE} \
+    --data_mode ${DATA_MODE} \
+    --nb_code ${NUM_CODE} \
+    --codebook_dim ${CODE_DIM} \
+    --num_frames ${NUM_FRAME} \
+    --sample_stride ${SAMPLE_STRIDE} \
+    --data_stride ${DATA_STRIDE} \
+    --hrnet_output_level ${HRNET_OUTPUT_LEVEL} \
+    --vision_guidance_ratio ${VISION_GUIDANCE_RATIO} \
+    --load_data_file "${load_data_file}" \
+    --load_image_source_file "${load_image_source_file}" \
+    --load_bbox_file "${load_bbox_file}" \
+    --load_text_source_file "${load_text_source_file}" \
+    --return_extra ${return_extra} \
+    --normalize ${normalize} \
+    --filter_invalid_images ${filter_invalid_images} \
+    --processed_image_shape ${processed_image_shape} \
+    --backbone ${backbone}

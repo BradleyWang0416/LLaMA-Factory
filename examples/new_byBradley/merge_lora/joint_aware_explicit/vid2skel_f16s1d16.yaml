@@ -1,0 +1,23 @@
+### model
+model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
+adapter_name_or_path: saves/vid_to_skel_f16s1d16_joint_aware_explicit/train/checkpoint-12000
+template: qwen2_vl
+trust_remote_code: true
+
+
+
+
+export_dir: saves/vid_to_skel_f16s1d16_joint_aware_explicit/merge/checkpoint-12000
+export_size: 5
+export_device: cpu  # choices: [cpu, auto]
+export_legacy_format: false
+
+
+
+
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<Hips>,</Hips>,<Right_Hip>,</Right_Hip>,<Right_Knee>,</Right_Knee>,<Right_Foot>,</Right_Foot>,<Left_Hip>,</Left_Hip>,<Left_Knee>,</Left_Knee>,<Left_Foot>,</Left_Foot>,<Spine>,</Spine>,<Thorax>,</Thorax>,<Neck/Nose>,</Neck/Nose>,<Head>,</Head>,<Left_Shoulder>,</Left_Shoulder>,<Left_Elbow>,</Left_Elbow>,<Left_Wrist>,</Left_Wrist>,<Right_Shoulder>,</Right_Shoulder>,<Right_Elbow>,</Right_Elbow>,<Right_Wrist>,</Right_Wrist>
+
+resize_vocab: true
+codebook_size: 8192

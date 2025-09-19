@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Optional
 import re
 import numpy as np
 import torch
-
+import os
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
 from ...extras.logging import get_logger
@@ -37,6 +37,14 @@ if TYPE_CHECKING:
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
 
+from ...extras_byBrad.convert_skel_token import *
+import sys
+sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+from lib.utils.viz_skel_seq import viz_skel_seq_anim # type: ignore
+
+    
+
+
 logger = get_logger(__name__)
 
 
@@ -51,6 +59,12 @@ def run_sft(
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]   # <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
+    
+
+    if 'debugpy' in sys.modules and training_args.do_train:
+        data_args.max_samples = 4
+    
+
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)  # <class 'peft.peft_model.PeftModelForCausalLM'>
     if getattr(model, "is_quantized", False) and not training_args.do_train:
@@ -139,30 +153,56 @@ def run_sft(
     if training_args.do_predict:
 
 
+        if model_args.vqvae_ckpt is not None:
+            print('\n'.join(['Warning!!! using vqvae from llamafactory.extras_byBrad.vqvae is deprecated, please use `hybrid_vqvae` instead.' for _ in range(99)]))
 
+            from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+            from safetensors.torch import load_file
+            encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+            vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+            decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+            skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
 
-        from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
-        from safetensors.torch import load_file
-        encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-        vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-        decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-        skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
-        mode = 'joint3d'
-        if mode == 'joint3d':
-            ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
+            ckpt_path = model_args.vqvae_ckpt
+            state_dict = load_file(ckpt_path, device="cpu")
+            skeleton_processor.load_state_dict(state_dict)
+            skeleton_processor.eval()
+            for param in skeleton_processor.parameters():
+                param.requires_grad = False
+            skeleton_processor = skeleton_processor.cuda()
         else:
-            raise NotImplementedError        
-        state_dict = load_file(ckpt_path, device="cpu")
-        skeleton_processor.load_state_dict(state_dict)
-        skeleton_processor.eval()
-        for param in skeleton_processor.parameters():
-            param.requires_grad = False
-        skeleton_processor = skeleton_processor.cuda()
+            from safetensors.torch import load_file as load_safetensors
+            sys.path.append('/home/wxs/MTVCrafter/')
+            from models import HYBRID_VQVAE # type: ignore
+            sys.path.remove('/home/wxs/MTVCrafter/')
+            skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
+                                              model_args.vqvae_config.vqvae_config.decoder,
+                                              model_args.vqvae_config.vqvae_config.vq, 
+                                              vision_config=model_args.vqvae_config.vision_config, 
+                                              joint_data_type=model_args.vqvae_config.vqvae_config.joint_data_type,
+                                              )
+
+            vqvae_ckpt = model_args.vqvae_config.vqvae_config.resume_path
+            safetensors_path = os.path.join(vqvae_ckpt, "model.safetensors")
+            pytorch_bin_path = os.path.join(vqvae_ckpt, "pytorch_model.bin")
+            if os.path.exists(safetensors_path):
+                print(f"Loading model from {safetensors_path}")
+                state_dict = load_safetensors(safetensors_path, device="cpu")
+            elif os.path.exists(pytorch_bin_path):
+                print(f"Loading model from {pytorch_bin_path}")
+                state_dict = torch.load(pytorch_bin_path, map_location="cpu")
+            else:
+                raise FileNotFoundError(f"Neither model.safetensors nor pytorch_model.bin found in {vqvae_ckpt}")
+            skeleton_processor.load_state_dict(state_dict, strict=True)
+            skeleton_processor.eval()
+            for param in skeleton_processor.parameters():
+                param.requires_grad = False
+            skeleton_processor = skeleton_processor.cuda()
 
 
         
 
-        '''
+        """
         # 这段代码是为了在一个独立的样本上进行推理, 不用数据集对象包装好的样本 ###############################################################
         new_video_frames_paths = [f"/data2/wxs/DATASETS/Human3.6M_MMPose/processed/images_fps50_cropped_192x256/S1/S1_Waiting_1.54138969/S1_Waiting_1.54138969_{img:06d}.jpg" 
                                   for img in range(1054,1070)]
@@ -194,9 +234,12 @@ def run_sft(
         except:
             print(f'[Custom Sample] shape mismatch: {[len(tmp) for tmp in custom_predict_motion_id]}. Skipping this sample')
         ################################################################################################################################
-        '''
+        """
 
+        get_skel_str_func = globals()[model_args.get_skel_str_func]
+        # same as: globals()[tokenizer_module['processor']['skeleton_processor']]
 
+        parse_skel_str_func = globals()[model_args.parse_skel_str_func]
 
 
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
@@ -206,7 +249,7 @@ def run_sft(
 
         MOTION_LABEL = []
         MOTION_PRED = []
-
+        success_log = []
         for sample_id in range(predict_results.predictions.shape[0]):
             sample_prediction = predict_results.predictions[sample_id]  # (1133,)
             sample_label = predict_results.label_ids[sample_id] # (96,)
@@ -216,43 +259,70 @@ def run_sft(
             text_label = tokenizer.decode(sample_label[sample_label != -100], skip_special_tokens=False)
 
 
-            motion_id_prediction = extract_skeleton_tokens(text_prediction)
-            motion_id_label = extract_skeleton_tokens(text_label)
-
-
+            motion_id_label = parse_skel_str_func(text_label)
             motion_id_label = np.array(motion_id_label)
             motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
             motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
+
             try:
+                motion_id_prediction = parse_skel_str_func(text_prediction)
                 motion_id_prediction = np.array(motion_id_prediction)
                 motion_id_prediction = torch.from_numpy(motion_id_prediction).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
                 motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
                 MOTION_LABEL.append(motion_label)
                 MOTION_PRED.append(motion_prediction)
-                continue
+                success_log.append(sample_id)
 
-                import sys
-                sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
-                from lib.utils.viz_skel_seq import viz_skel_seq_anim
 
-                viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
+
+                source_slice_id_path = dataset_module["eval_dataset"][sample_id]['skeletons'][0].replace('skeleton_code', 'source_slice_id')
+                if os.path.exists(source_slice_id_path):
+                    source_slice_id = np.load(source_slice_id_path)   # (T,)
+
+                    if 'h36m_data' not in locals():
+                        import joblib
+                        h36m_data = joblib.load("/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl")
+                    
+                    camera_name = h36m_data['test']['camera_name'][source_slice_id]
+
+
+
+                # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=False)
                 # viz_skel_seq_anim({'gt': motion_label, 'pred': motion_prediction}, fs=0.5, if_print=True, fig_title=f"{sample_id}", file_folder='.', file_name=f'{sample_id:06d}')
 
                 
             except Exception as e:
                 print(f'[SampleID {sample_id}] {e}. Skipping this sample')
-                print(f'[SampleID {sample_id}] shape mismatch: {[len(tmp) for tmp in motion_id_prediction]}. Skipping this sample')
                 continue
 
 
         MOTION_LABEL=np.stack(MOTION_LABEL,axis=0)        # [N,T,17,3]
         MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
 
-        mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
-                                   - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
-        mpjpe_all = mpjpe_all * 1000
+        # mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
+        #                            - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
+        # mpjpe_all = mpjpe_all * 1000
+
+
+        try:
+            skeleton_npy_path_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
+            skeleton_scale = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_scale')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+            skeleton_offset = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_transl')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+
+            MOTION_PRED_PIX = (MOTION_PRED + skeleton_offset) * skeleton_scale
+            MOTION_LABEL_PIX = (MOTION_LABEL + skeleton_offset) * skeleton_scale
+
+            factor_2_5d = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','factor_2_5d')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, None]     # (N,T,1,1)
+            MOTION_PRED_MM = MOTION_PRED_PIX * factor_2_5d
+            MOTION_LABEL_MM = MOTION_LABEL_PIX * factor_2_5d
+
+            MOTION_PRED_ROOTREL = MOTION_PRED_MM - MOTION_PRED_MM[...,0:1,:]
+            MOTION_LABEL_ROOTREL = MOTION_LABEL_MM - MOTION_LABEL_MM[...,0:1,:]
+            wmpjpe_all = np.linalg.norm(MOTION_LABEL_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
+        except:
+            pass
 
 
 

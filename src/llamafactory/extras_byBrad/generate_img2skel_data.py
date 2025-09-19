@@ -55,42 +55,112 @@ PROMPT_TEMPLATES_V0 = {
 }
 
 PROMPT_TEMPLATES = {
-    'img_to_skel': [
-        # --- 简洁格式说明 (大部分采用此形式) ---
-        "Generate the skeleton sequence for the video <video>. Please structure the output for each frame using body part tags (e.g., <torso>...</torso>, <left_arm>...</left_arm>, etc.).",
-        "Transcribe the actions in <video> into a sequence of skeleton tokens, ensuring the output is formatted by body parts for each frame.",
-        "What is the skeleton token sequence for the person in <video>? Please provide the answer in a structured format with body part tags.",
-        "You are a motion analysis expert. Analyze the video <video> and output the corresponding motion data. Your output must be structured frame-by-frame, with each frame containing body part sections like <torso>...</torso>.",
-        "Here is a video of a person moving: <video>. The corresponding structural representation, organized by body parts, is:",
-        "Analyze the person's movement in <video> and represent it structurally using body part tags.",
+    'img_to_skel': {
+        'fixed': [
+            "Generate the skeleton sequence for the video <video>."
+        ],
+        'simple': [
+            # --- 简洁格式说明 (大部分采用此形式) ---
+            "Generate the skeleton sequence for the video <video>.",
+            "Transcribe the actions in <video> into a sequence of skeleton tokens.",
+            "What is the skeleton token sequence for the person in <video>?",
+            "You are a motion analysis expert. Analyze the video <video> and output the corresponding motion data.",
+            "Here is a video of a person moving: <video>. The corresponding skeletal representation is:",
+            "Analyze the person's movement in <video> and represent it using skeleton tokens.",
 
-        # --- 完整格式说明 (作为清晰的“锚点”) ---
-        "Please provide the skeletal representation for the movement in the video <video>. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
-        "What would the motion capture data for the video <video> look like? Output the data using the precise format for each frame: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
-    ],
-    'skel_pred': [
-        # --- 简洁格式说明 ---
-        "Continue the motion sequence provided in <skeleton>. The predicted motion should follow the same body part structure (e.g., <torso>...</torso>).",
-        "Predict the future motion based on the provided skeleton sequence <skeleton>. Generate the next set of skeleton tokens using the established body part format.",
-        "Given the motion <skeleton>, what happens next? Please provide the answer in the same structural format.",
-        "You are a motion prediction expert. Analyze the past motion <skeleton> and output the most likely future motion, maintaining the structural format.",
-        "Here is the beginning of a motion sequence: <skeleton>. The continuation of the motion, maintaining the same structure, is:",
-        
-        # --- 完整格式说明 (作为清晰的“锚点”) ---
-        "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
-        "Past motion: <skeleton>. Future motion (formatted with all body part tags):",
-    ],
-    'text_to_skel': [
-        # --- 简洁格式说明 ---
-        "Generate the skeleton sequence for the following description: <text_description>. Please structure the output using body part tags (e.g., <torso>...</torso>).",
-        "Create a motion sequence based on this text: \"<text_description>\". Ensure the output is formatted with body part tags for each frame.",
-        "What would the motion for '<text_description>' look like in skeleton tokens? Please provide the answer in the structured body part format.",
-        "You are a choreographer. Animate the following description into a skeleton sequence: <text_description>. Use the standard body part structure for your output.",
-        "Description: <text_description>. Corresponding skeleton sequence:",
+            # --- 完整格式说明 (作为清晰的“锚点”) ---
+            "Please provide the skeletal representation for the movement in the video <video>.",
+        ],
+        'bodypart_aware': [
+            # --- 简洁格式说明 (大部分采用此形式) ---
+            "Generate the skeleton sequence for the video <video>. Please structure the output for each frame using body part tags (e.g., <torso>...</torso>, <left_arm>...</left_arm>, etc.).",
+            "Transcribe the actions in <video> into a sequence of skeleton tokens, ensuring the output is formatted by body parts for each frame.",
+            "What is the skeleton token sequence for the person in <video>? Please provide the answer in a structured format with body part tags.",
+            "You are a motion analysis expert. Analyze the video <video> and output the corresponding motion data. Your output must be structured frame-by-frame, with each frame containing body part sections like <torso>...</torso>.",
+            "Here is a video of a person moving: <video>. The corresponding structural representation, organized by body parts, is:",
+            "Analyze the person's movement in <video> and represent it structurally using body part tags.",
 
-        # --- 完整格式说明 (作为清晰的“锚点”) ---
-        "Generate the skeleton motion for the description: \"<text_description>\". Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
-    ]
+            # --- 完整格式说明 (作为清晰的“锚点”) ---
+            "Please provide the skeletal representation for the movement in the video <video>. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+            "What would the motion capture data for the video <video> look like? Output the data using the precise format for each frame: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'bodypart_aware_explicit': [
+            "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'joint_aware_explicit': [
+            "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. "
+            "Your response must be structured for each frame using all 17 joint tags: <Hips>...</Hips><Right_Hip>...</Right_Hip><Right_Knee>...</Right_Knee><Right_Foot>...</Right_Foot><Left_Hip>...</Left_Hip><Left_Knee>...</Left_Knee><Left_Foot>...</Left_Foot><Spine>...</Spine><Thorax>...</Thorax><Neck/Nose>...</Neck/Nose><Head>...</Head><Left_Shoulder>...</Left_Shoulder><Left_Elbow>...</Left_Elbow><Left_Wrist>...</Left_Wrist><Right_Shoulder>...</Right_Shoulder><Right_Elbow>...</Right_Elbow><Right_Wrist>...</Right_Wrist>.",
+        ],
+    },
+    'skel_pred': {
+        'fixed': [
+            "Predict the future motion based on the provided skeleton sequence <skeleton>.",
+        ],
+        'simple': [
+            # --- 简洁格式说明 (大部分采用此形式) ---
+            "Continue the motion sequence provided in <skeleton>.",
+            "Predict the future motion based on the provided skeleton sequence <skeleton>.",
+            "Given the motion <skeleton>, what happens next?",
+            "You are a motion prediction expert. Analyze the past motion <skeleton> and output the most likely future motion.",
+            "Here is the beginning of a motion sequence: <skeleton>. The continuation of the motion is:",
+            "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>.",
+
+            # --- 完整格式说明 (作为清晰的"锚点") ---
+            "Past motion: <skeleton>. Future motion:",
+        ],
+        'bodypart_aware': [
+            # --- 简洁格式说明 ---
+            "Continue the motion sequence provided in <skeleton>. The predicted motion should follow the same body part structure (e.g., <torso>...</torso>).",
+            "Predict the future motion based on the provided skeleton sequence <skeleton>. Generate the next set of skeleton tokens using the established body part format.",
+            "Given the motion <skeleton>, what happens next? Please provide the answer in the same structural format.",
+            "You are a motion prediction expert. Analyze the past motion <skeleton> and output the most likely future motion, maintaining the structural format.",
+            "Here is the beginning of a motion sequence: <skeleton>. The continuation of the motion, maintaining the same structure, is:",
+            
+            # --- 完整格式说明 (作为清晰的“锚点”) ---
+            "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+            "Past motion: <skeleton>. Future motion (formatted with all body part tags):",
+        ],
+        'bodypart_aware_explicit': [
+            "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Use <|frame_break|> to separate frames. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'joint_aware_explicit': [
+            # TODO
+        ],
+    },
+    'text_to_skel': {
+        'fixed': [
+            "Generate the skeleton motion for the description: \"<text_description>\".",
+        ],
+        'simple': [
+            # --- 简洁格式说明 (大部分采用此形式) ---
+            "Generate the skeleton sequence for the following description: <text_description>.",
+            "Create a motion sequence based on this text: \"<text_description>\".",
+            "What would the motion for '<text_description>' look like in skeleton tokens?",
+            "You are a choreographer. Animate the following description into a skeleton sequence: <text_description>.",
+            "Description: <text_description>. Corresponding skeleton sequence:",
+            "Convert the following text into skeleton motion: \"<text_description>\".",
+
+            # --- 完整格式说明 (作为清晰的"锚点") ---
+            "Generate the skeleton motion for the description: \"<text_description>\".",
+        ],
+        'bodypart_aware': [
+            # --- 简洁格式说明 ---
+            "Generate the skeleton sequence for the following description: <text_description>. Please structure the output using body part tags (e.g., <torso>...</torso>).",
+            "Create a motion sequence based on this text: \"<text_description>\". Ensure the output is formatted with body part tags for each frame.",
+            "What would the motion for '<text_description>' look like in skeleton tokens? Please provide the answer in the structured body part format.",
+            "You are a choreographer. Animate the following description into a skeleton sequence: <text_description>. Use the standard body part structure for your output.",
+            "Description: <text_description>. Corresponding skeleton sequence:",
+
+            # --- 完整格式说明 (作为清晰的“锚点”) ---
+            "Generate the skeleton motion for the description: \"<text_description>\". Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'bodypart_aware_explicit': [
+            "Generate the skeleton motion for the description: \"<text_description>\". Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
+        ],
+        'joint_aware_explicit': [
+            # TODO
+        ],
+    },
 }
 
 TASK_TEMPLATE = {
@@ -115,19 +185,26 @@ TASK_TEMPLATE = {
 }
 
 def img_to_skel():
-    num_frames = 64
-    sample_stride = 2
+    num_frames = 16
+    sample_stride = 1
+    data_stride = 16
     designated_split = 'test'
+    
+    # prompt_template_key = 'fixed'
+    # prompt_template_key = 'simple'
+    # prompt_template_key = 'bodypart_aware'
+    # prompt_template_key = 'bodypart_aware_explicit'
+    prompt_template_key = 'joint_aware_explicit'
 
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/f{num_frames}s{sample_stride}/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/vid_to_skel/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/vid_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
 
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
     load_image_source_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl"
     load_text_source_file = ""
 
-    skeleton_processor = prepare_vqvae(mode='joint3d')
-    img2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
+    skeleton_processor = prepare_vqvae(mode='joint3d', sample_stride=sample_stride)
+    img2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_stride=data_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
                                        return_extra=[['image']],
                                        )
@@ -137,8 +214,9 @@ def img_to_skel():
     CODEBOOK_INDICES = []
     QUANT_SHAPES = []
     IMAGES = []
+    SLICED_INDICES = []
     for batch in tqdm(img2skel_dataloader):
-        pose_seq, img_src, _ = batch
+        pose_seq, img_src, _, slice_indices = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -151,6 +229,7 @@ def img_to_skel():
         CODEBOOK_INDICES.append(codebook_indices)
         QUANT_SHAPES.append(quant_shape)
         IMAGES = IMAGES + img_src
+        SLICED_INDICES = SLICED_INDICES + slice_indices
     POSES = np.concatenate(POSES, axis=0)                      # (N, T, 17, 3)
     CODEBOOK_INDICES = np.concatenate(CODEBOOK_INDICES, axis=0)  # (N, quant_t, 17)
     QUANT_SHAPES = np.concatenate(QUANT_SHAPES, axis=0)          # (N, 3)
@@ -183,8 +262,15 @@ def img_to_skel():
         quant_shape = QUANT_SHAPES[sample_id]           # (3)
         np.save(quant_shape_save_file, quant_shape)
 
+        source_slice_id_save_path = f"{save_path}/source_slice_id"
+        source_slice_id_save_file = os.path.join(source_slice_id_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(source_slice_id_save_path): 
+            os.makedirs(source_slice_id_save_path)
+        source_slice_id = SLICED_INDICES[sample_id]
+        np.save(source_slice_id_save_file, source_slice_id)
+
         task_item = easydict.EasyDict(TASK_TEMPLATE['img_to_skel'])
-        chosen_prompt = random.choice(PROMPT_TEMPLATES['img_to_skel'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['img_to_skel'][prompt_template_key])
         task_item.conversations[0]["value"] = chosen_prompt
         task_item.videos = [IMAGES[sample_id]]
         task_item.skeletons = [codebook_index_save_file]
@@ -200,19 +286,28 @@ def img_to_skel():
 
 def skel_pred():
     num_frames = 16
-    sample_stride = 2
+    sample_stride = 1
+    data_stride = 16
     designated_split = 'test'
 
-
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/f{num_frames}s{sample_stride}/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
+    # prompt_template_key = 'fixed'
+    # prompt_template_key = 'simple'
+    # prompt_template_key = 'bodypart_aware'
+    prompt_template_key = 'bodypart_aware_explicit'
 
     load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl"
+    # load_data_file = "/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl,/data2/wxs/DATASETS/AMASS_ByBradley/,/data2/wxs/DATASETS/PW3D_ByBradley/all_data.pkl"
+
+    # save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    # jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/ams_h36m_3dpw/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/skel_pred/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/skel_pred/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
+
     load_image_source_file = ""
     load_text_source_file = ""
 
-    skeleton_processor = prepare_vqvae(mode='joint3d')
-    skel_dataset = SkeletonDataset(num_frames=num_frames * 2, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
+    skeleton_processor = prepare_vqvae(mode='joint3d', sample_stride=sample_stride)
+    skel_dataset = SkeletonDataset(num_frames=num_frames * 2, sample_stride=sample_stride, data_stride=data_stride, data_mode='joint3d', designated_split=designated_split,
                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
                                        return_extra=[[]],
                                        )
@@ -221,8 +316,9 @@ def skel_pred():
     POSES = {'history': [], 'future': []}
     CODEBOOK_INDICES = {'history': [], 'future': []}
     QUANT_SHAPES = {'history': [], 'future': []}
+    SLICED_INDICES = []
     for batch in tqdm(skel_dataloader):
-        pose_seq, _, _ = batch
+        pose_seq, _, _, slice_indices = batch
         # pose_seq: (B,2T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
         pose_seq = pose_seq.cuda()
@@ -243,6 +339,9 @@ def skel_pred():
         CODEBOOK_INDICES['future'].append(codebook_indices_future)
         QUANT_SHAPES['history'].append(quant_shape_history)
         QUANT_SHAPES['future'].append(quant_shape_future)
+
+        SLICED_INDICES = SLICED_INDICES + slice_indices
+
     POSES = {k: np.concatenate(v, axis=0) for k, v in POSES.items()}
     CODEBOOK_INDICES = {k: np.concatenate(v, axis=0) for k, v in CODEBOOK_INDICES.items()}
     QUANT_SHAPES = {k: np.concatenate(v, axis=0) for k, v in QUANT_SHAPES.items()}
@@ -294,8 +393,15 @@ def skel_pred():
         np.save(history_quant_shape_save_file, quant_shape_his)
         np.save(future_quant_shape_save_file, quant_shape_fut)
 
+        source_slice_id_save_path = f"{save_path}/source_slice_id"
+        source_slice_id_save_file = os.path.join(source_slice_id_save_path, f"h36m_{sample_id:06d}.npy")
+        if not os.path.exists(source_slice_id_save_path): 
+            os.makedirs(source_slice_id_save_path)
+        source_slice_id = SLICED_INDICES[sample_id]
+        np.save(source_slice_id_save_file, source_slice_id)
+
         task_item = easydict.EasyDict(TASK_TEMPLATE['skel_pred'])
-        chosen_prompt = random.choice(PROMPT_TEMPLATES['skel_pred'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['skel_pred'][prompt_template_key])
         task_item.conversations[0]["value"] = chosen_prompt
         task_item.skeletons = [history_codebook_index_save_file, future_codebook_index_save_file]
 
@@ -311,19 +417,25 @@ def skel_pred():
 def text_to_skel():
     num_frames = 64
     sample_stride = 2
-    designated_split = 'train'
+    data_stride = 64
+    designated_split = 'test'
 
-    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/text_to_skel/f{num_frames}s{sample_stride}/{designated_split}'
-    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/text_to_skel/f{num_frames}s{sample_stride}/{designated_split}.jsonl'
+    prompt_template_key = 'fixed'
+    # prompt_template_key = 'simple'
+    # prompt_template_key = 'bodypart_aware'
+
+    save_path = f'/home/wxs/LLaMA-Factory/data/source_data_byBrad/text_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}'
+    jsonl_save_file = f'/home/wxs/LLaMA-Factory/data/custom_dataset_byBrad/text_to_skel/f{num_frames}s{sample_stride}d{data_stride}{"" if prompt_template_key=="simple" else "_"+prompt_template_key}/{designated_split}.jsonl'
 
     load_data_file = "/data2/wxs/DATASETS/AMASS_ByBradley/"
     load_image_source_file = ""
     load_text_source_file = "/data2/wxs/DATASETS/AMASS_ByBradley/text_map.pkl"
 
-    skeleton_processor = prepare_vqvae(mode='joint3d')
-    text2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_mode='joint3d', designated_split=designated_split,
-                                       load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
-                                       return_extra=[['text']],
+    skeleton_processor = prepare_vqvae(mode='joint3d', sample_stride=sample_stride)
+    text2skel_dataset = SkeletonDataset(num_frames=num_frames, sample_stride=sample_stride, data_stride=data_stride, 
+                                        data_mode='joint3d', designated_split=designated_split,
+                                        load_data_file=load_data_file, load_image_source_file=load_image_source_file, load_text_source_file=load_text_source_file,
+                                        return_extra=[['text']],
                                        )
     img2skel_dataloader = torch.utils.data.DataLoader(text2skel_dataset, batch_size=64, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
     
@@ -332,6 +444,7 @@ def text_to_skel():
     QUANT_SHAPES = []
     CAPTIONS = []
     for batch in tqdm(img2skel_dataloader):
+        raise NotImplementedError("need to modify SkeletonDataset to return slice_id for each sample")
         pose_seq, _, caption = batch
         # pose_seq: (B,T,17,3)
         # img_src: B-length list of T-length lists. img_src[b][t] is a str
@@ -378,7 +491,7 @@ def text_to_skel():
         np.save(quant_shape_save_file, quant_shape)
 
         task_item = easydict.EasyDict(TASK_TEMPLATE['text_to_skel'])
-        chosen_prompt = random.choice(PROMPT_TEMPLATES['text_to_skel'])
+        chosen_prompt = random.choice(PROMPT_TEMPLATES['text_to_skel'][prompt_template_key])
         prompt_with_caption = chosen_prompt.replace("<text_description>", CAPTIONS[sample_id])
         task_item.conversations[0]["value"] = prompt_with_caption
         task_item.skeletons = [codebook_index_save_file]
@@ -459,7 +572,7 @@ def generate_pseudo_labels(image_sequences: list[list[str]]) -> list[str]:
     return captions
    
 class SkeletonDataset(torch.utils.data.Dataset):
-    def __init__(self, num_frames=16, sample_stride=1, data_mode="joint3d", designated_split='train',
+    def __init__(self, num_frames=16, sample_stride=1, data_stride=16, data_mode="joint3d", designated_split='train',
                  load_data_file="", load_image_source_file="", load_text_source_file="",
                  return_extra=[['image'], ['text']],                 
                  # e.g.,
@@ -479,7 +592,7 @@ class SkeletonDataset(torch.utils.data.Dataset):
             datareader_config_unsplit = {'dt_file': dt_file,}
             datareader_config_split = {'chunk_len': num_frames,
                                        'sample_stride': sample_stride, 
-                                       'data_stride': num_frames,
+                                       'data_stride': data_stride,
                                        'read_confidence': False}
             datareader_config = {**datareader_config_unsplit, **datareader_config_split}
             datareader = DataReaderMesh(**datareader_config)        
@@ -571,32 +684,36 @@ class SkeletonDataset(torch.utils.data.Dataset):
         # caption could be None if it's a sample from pose-image sets (e.g., H36M)
         poses = self.data_dict[dt_file]['poses'][slice_id]
 
-        idx = random.randint(0, poses.shape[0] - self.num_frames)
-        poses = poses[idx:idx + self.num_frames]
+        if caption is not None:
+            idx = random.randint(0, poses.shape[0] - self.num_frames)
+            poses = poses[idx:idx + self.num_frames]
 
         if 'img_src' in self.data_dict[dt_file]:
             img_src = self.data_dict[dt_file]['img_src'][slice_id].tolist()
         else:
             img_src = []
 
-        return torch.from_numpy(poses).float(), img_src, caption
+        return torch.from_numpy(poses).float(), img_src, caption, slice_id
     
 
 def custom_collate_fn(batch):    
     poses_list = [item[0] for item in batch]
     img_src_list = [item[1] for item in batch]
     caption_list = [item[2] for item in batch]
+    slice_id_list = [item[3] for item in batch]
     batched_poses = torch.stack(poses_list, dim=0)
-    return batched_poses, img_src_list, caption_list
+    return batched_poses, img_src_list, caption_list, slice_id_list
 
-def prepare_vqvae(mode='joint3d'):
+def prepare_vqvae(mode='joint3d', sample_stride=1):
     encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
     vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
     decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
     skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
 
-    if mode == 'joint3d':
-        ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets/models/checkpoint_epoch_113_step_500000/model.safetensors"
+    if mode == 'joint3d' and sample_stride == 1:
+        ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d/models/checkpoint_epoch_113_step_500000/model.safetensors"
+    elif mode == 'joint3d' and sample_stride == 2:
+        ckpt_path = "/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d_f64s2/models/checkpoint_epoch_148_step_240000/model.safetensors"
     else:
         raise NotImplementedError
     
@@ -610,6 +727,6 @@ def prepare_vqvae(mode='joint3d'):
 
 
 if __name__ == "__main__":
-    skel_pred()
-    text_to_skel()
+    # skel_pred()
+    # text_to_skel()
     img_to_skel()

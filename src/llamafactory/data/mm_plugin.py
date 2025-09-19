@@ -41,6 +41,7 @@ from ..extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor
 #########################################################################################
 # ADDED BY BRADLEY 250906 ###############################################################
 from ..extras.constants import BODY_PART_TOKENS, JOINT_GROUP_MAP, BODY_PART_ORDER
+from ..extras_byBrad.convert_skel_token import *
 #########################################################################################
 
 from ..extras.packages import (
@@ -344,19 +345,15 @@ class MMPluginMixin:
 
     # ADDED BY BRADLEY 250827 ###############################################################
     def _regularize_skeletons(
-        self, skeletons: list["SkeletalInput"], processor: "MMProcessor", **kwargs
+        self, skeletons: list["SkeletalInput"], **kwargs
     ) -> dict[str, "torch.Tensor"]:
-        r"""Regularizes skeletons by encoding with VQVAE."""
-
-        vqvae_encoder = getattr(processor, "skeleton_processor", None)
-        if vqvae_encoder is None:
-            raise ValueError("Skeleton processor (VQVAEEncoder) not found.")
+        r"""Regularizes skeletons by encoding with VQVAE."""        
 
         POSES = []
         CODEBOOK_INDICES = []
         GRID_SHAPES = []
+        SOURCE_SLICE_ID = []
         for skeleton_indices_path in skeletons:
-
             """
             if isinstance(skeleton, str):
                 data = np.load(skeleton)
@@ -394,11 +391,17 @@ class MMPluginMixin:
             grid_shape = [1, t_quant, j_quant] # [t, h, w]
             GRID_SHAPES.append(grid_shape)
 
+            source_slice_id_path = skeleton_indices_path.replace('skeleton_code', 'source_slice_id')
+            if os.path.exists(source_slice_id_path):
+                source_slice_id = np.load(source_slice_id_path)  # [3], [C, T_quant, J_quant]
+                source_slice_id = torch.from_numpy(source_slice_id)
+                SOURCE_SLICE_ID.append(source_slice_id)
 
         return {
             "skeleton_indices": CODEBOOK_INDICES,  # 相当于 image 模态对应的 pixel_values
             "skeleton_poses": POSES,
             "skeleton_grid_thw": torch.tensor(GRID_SHAPES, dtype=torch.long),
+            "source_slice_id": SOURCE_SLICE_ID,
             }
     #########################################################################################
 
@@ -490,6 +493,7 @@ class MMPluginMixin:
         
         # ADDED BY BRADLEY 250827 ###############################################################
         if len(skeletons) != 0: # New skeleton processing
+            raise NotImplementedError
             skeleton_data = self._regularize_skeletons(skeletons, processor)
 
             # 1. 从返回的字典中提取 grid_shapes
@@ -1604,7 +1608,7 @@ class Qwen2VLPlugin(BasePlugin):
 
         # ADDED BY BRADLEY 250827 ###############################################################
         if len(skeletons) != 0: # New skeleton processing
-            skeleton_data = self._regularize_skeletons(skeletons, processor)
+            skeleton_data = self._regularize_skeletons(skeletons)
             mm_inputs.update(skeleton_data)
         #########################################################################################
 
@@ -1671,7 +1675,8 @@ class Qwen2VLPlugin(BasePlugin):
                     # Get the skeleton indices and convert to a token string
                     skeleton_indices = mm_inputs["skeleton_indices"][num_skeleton_tokens]    # list of (T,J). e.g., (4,17)
                     
-                    skeleton_token_str = get_skeleton_token_str(skeleton_indices)  # e.g., "<skel_0><skel_1>...<skel_16><|><skel_0>..."
+                    get_skel_str_func = globals()[processor.skeleton_processor]
+                    skeleton_token_str = get_skel_str_func(skeleton_indices)  # e.g., "<skel_0><skel_1>...<skel_16><|><skel_0>..."
 
                     content = content.replace(
                         SKELETON_PLACEHOLDER, f"<|skel_start|>{skeleton_token_str}<|skel_end|>", 1,
@@ -1687,39 +1692,7 @@ class Qwen2VLPlugin(BasePlugin):
             message["content"] = content
 
         return messages
-
-def get_skeleton_token_str_v0(skeleton_indices):
-    frame_strings = []
-    for frame_indices in skeleton_indices: # 遍历每一帧
-        # 将一帧内的关节索引转换为 <skel_i> 字符串
-        joint_str = "".join([SKELETON_TOKEN_BASE.format(i) for i in frame_indices])
-        frame_strings.append(joint_str)
     
-    # 4. 使用 "换帧符" 连接所有帧
-    skeleton_token_str = SKELETON_FRAME_BREAK.join(frame_strings)
-    return skeleton_token_str
-
-def get_skeleton_token_str(skeleton_indices):
-    frame_strings = []
-    for frame_indices in skeleton_indices: # 遍历每一帧
-        part_strings = []
-        # 3. 按照预定义的身体部位顺序进行遍历
-        for part_name in BODY_PART_ORDER:
-            start_token, end_token = BODY_PART_TOKENS[part_name]
-            joint_indices_for_part = JOINT_GROUP_MAP[part_name]
-            
-            # 提取该部位对应的关节词元
-            joint_tokens = [SKELETON_TOKEN_BASE.format(frame_indices[j]) for j in joint_indices_for_part]
-            
-            # 构建部位字符串: <torso><skel_1><skel_2></torso>
-            part_strings.append(start_token + "".join(joint_tokens) + end_token)
-        
-        # 将一帧内所有部位的字符串连接起来
-        frame_strings.append("".join(part_strings))
-    
-    # 4. 使用 "换帧符" 连接所有帧
-    skeleton_token_str = SKELETON_FRAME_BREAK.join(frame_strings)
-    return skeleton_token_str
 
 @dataclass
 class GLM4VPlugin(Qwen2VLPlugin):

@@ -1,0 +1,37 @@
+model_name_or_path: saves/skel_pred_f16s1d16_bodypart_aware_explicit/merge/checkpoint-20000
+
+eval_dataset: skel_pred_f16s1d16_bodypart_aware_explicit_test
+
+vqvae_ckpt: /home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/all_datasets_j3d/models/checkpoint_epoch_113_step_500000/model.safetensors  # only used in infer
+
+get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
+parse_skel_str_func: parse_skeleton_token_str_wBodyPart   # only used in infer
+
+max_samples: 256
+
+# add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+
+resize_vocab: true
+codebook_size: 8192
+
+
+image_max_pixels: 262144
+video_max_pixels: 16384
+trust_remote_code: true
+
+### method
+stage: sft
+do_predict: true
+predict_with_generate: true
+
+### dataset
+template: qwen2_vl
+cutoff_len: 2048
+overwrite_cache: true
+
+preprocessing_num_workers: 16
+dataloader_num_workers: 4
+# preprocessing_num_workers: 1    # 使用 16 在 src/llamafactory/data/loader.py 中的 dataset.map 这一步会报错
+# dataloader_num_workers: 1

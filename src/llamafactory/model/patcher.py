@@ -35,6 +35,7 @@ from .model_utils.quantization import configure_quantization
 from .model_utils.rope import configure_rope
 from .model_utils.valuehead import prepare_valuehead_model
 from .model_utils.visual import autocast_projector_dtype, configure_visual_model
+from ..extras.constants import SKELETON_TOKEN_BASE
 
 
 if TYPE_CHECKING:
@@ -64,7 +65,24 @@ def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArgument
 
     # ADDED BY BRADLEY 250902 ####################################################################################
     if model_args.codebook_size is not None:
-        new_codebook_tokens = [f"<skel_{i}>" for i in range(model_args.codebook_size)]
+        print('\n'.join(['Warning!!! `model_args.codebook_size` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+
+        new_codebook_tokens = [SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)]
+        # new_codebook_tokens = [f"<skel_{i}>" for i in range(model_args.codebook_size)]
+
+        num_added_codebook_tokens = tokenizer.add_tokens(new_tokens=new_codebook_tokens, special_tokens=True)
+        # TODO: 为什么motiongpt和unipose是当作普通词元来处理, 而这里需要是特殊词元
+
+        logger.info_rank0("Add codebook tokens ...{} to tokenizer's vocabulary.".format(",".join(new_codebook_tokens[-10:])))
+        if num_added_codebook_tokens > 0 and not model_args.resize_vocab:
+            model_args.resize_vocab = True
+            logger.warning_rank0("New codebook tokens have been added, changed `resize_vocab` to True.")
+    ##############################################################################################################
+    # ADDED BY BRADLEY 250917 ####################################################################################
+    else:
+        codebook_size = model_args.vqvae_config.vqvae_config.vq.nb_code
+        new_codebook_tokens = [SKELETON_TOKEN_BASE.format(i) for i in range(codebook_size)]
+        # new_codebook_tokens = [f"<skel_{i}>" for i in range(codebook_size)]
 
         num_added_codebook_tokens = tokenizer.add_tokens(new_tokens=new_codebook_tokens, special_tokens=True)
         # TODO: 为什么motiongpt和unipose是当作普通词元来处理, 而这里需要是特殊词元
@@ -164,6 +182,15 @@ def patch_config(
 
             if init_kwargs.get("device_map", None) == "auto":
                 init_kwargs["offload_folder"] = model_args.offload_folder
+
+    # ADDED BY BRADLEY 250911 #####################################################################################
+    if model_args.vqvae_ckpt is not None:
+        print('\n'.join(['Warning!!! `model_args.vqvae_ckpt` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
+        init_kwargs['vqvae_ckpt'] = model_args.vqvae_ckpt
+    else:
+        init_kwargs['vqvae_config'] = model_args.vqvae_config
+    init_kwargs['use_mpjpe_loss'] = model_args.use_mpjpe_loss
+    ###############################################################################################################
 
 
 def patch_model(

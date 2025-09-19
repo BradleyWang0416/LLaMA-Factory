@@ -1,0 +1,66 @@
+### model
+model_name_or_path: saves/skel_pred_f16s2d16/merge/checkpoint-15000
+image_max_pixels: 262144
+video_max_pixels: 16384
+trust_remote_code: true
+
+### method
+stage: sft
+# do_train: true
+do_predict: true
+predict_with_generate: true
+# finetuning_type: lora
+# lora_rank: 8
+# lora_target: all
+
+### dataset
+# dataset: custom_dataset_byBrad_vid2skel_train
+eval_dataset: skel_pred_f16s2d16_test
+template: qwen2_vl
+cutoff_len: 2048
+max_samples: 64
+overwrite_cache: true
+
+preprocessing_num_workers: 16
+dataloader_num_workers: 4
+# preprocessing_num_workers: 1    # 使用 16 在 src/llamafactory/data/loader.py 中的 dataset.map 这一步会报错
+# dataloader_num_workers: 1
+
+### output
+# output_dir: saves/qwen2_5vl-7b_byBrad_forInfer/lora/sft
+# logging_steps: 10
+# save_steps: 500
+# plot_loss: true
+# overwrite_output_dir: true
+# save_only_model: false
+# report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+
+### train
+# per_device_train_batch_size: 1
+# gradient_accumulation_steps: 8
+# learning_rate: 1.0e-4
+# num_train_epochs: 3.0
+# lr_scheduler_type: cosine
+# warmup_ratio: 0.1
+# bf16: true
+# ddp_timeout: 180000000
+# resume_from_checkpoint: null
+
+### eval
+# val_size: 0.1
+# per_device_eval_batch_size: 1
+# eval_strategy: steps
+# eval_steps: 500
+
+
+# ADDED BY BRADLEY 250827
+# add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+resize_vocab: true
+
+# 自定义参数
+codebook_size: 8192 # TODO: 自定义参数会在 train/tuner.py::L55 "get_train_args(args)" 之后丢失, 不会被加入到参数中, 需要修改源码
+# hparams/model_args.py::BaseModelArgument添加了codebook_size (250902)
+
+# 其他参数见 src/llamafactory/hparams/model_args.py
