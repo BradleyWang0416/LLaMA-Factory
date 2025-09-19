@@ -1,1 +1,1 @@
-/home/wxs/Skeleton-in-Context-tpami/lib/utils/viz_skel_seq.py
+/home/wxs/Human_in_Context_TPAMI/lib/utils/viz_skel_seq.py
