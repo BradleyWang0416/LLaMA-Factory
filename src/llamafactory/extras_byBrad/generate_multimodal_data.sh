@@ -3,14 +3,14 @@ mode=infer
 
 
 
-joint_data_type=joint3d_image_normed
-get_item_list="['image_sources','slice_id','factor_2_5d']"
+joint_data_type=joint3d_image_affined_normed
+get_item_list="['image_sources','slice_id','factor_2_5d','video_rgb']"
 prompt_template=BodypartAwareExplicit
 task=Vid2Skel
-data_split=test
-resume_path=/home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000
+data_split=train
+resume_path=/home/wxs/MTVCrafter/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_60_step_340000
 
-BATCH_SIZE=64
+BATCH_SIZE=32
 
 DATA_MODE=joint3d
 
@@ -21,10 +21,10 @@ SAMPLE_STRIDE=1
 DATA_STRIDE=16
 processed_image_shape="[192,256]"
 HRNET_OUTPUT_LEVEL=3    # int or list. 0,1,2,3 分别对应输出 [B,32,H/4,W/4], [B,64,H/8,W/8], [B,128,H/16,W/16], [B,256,H/32,W/32] 的特征
-VISION_GUIDANCE_RATIO=0
+VISION_GUIDANCE_RATIO=0.5
 
-# save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}_aff192x256
-save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}
+save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}_aff192x256
+# save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}
 
 
 
@@ -34,7 +34,7 @@ load_bbox_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/bboxes_xyxy.pkl
 load_text_source_file=''
 return_extra="[['image']]"
 # data preprocessing config
-normalize=isotropic
+normalize=anisotropic
 # image config
 filter_invalid_images=True
 backbone=hrnet_32
@@ -49,7 +49,7 @@ fi
 
 
 
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=2 \
     python \
     $DEBUG_ARGS \
     src/llamafactory/extras_byBrad/generate_multimodal_data.py \

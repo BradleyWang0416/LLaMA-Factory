@@ -300,7 +300,7 @@ if __name__ == "__main__":
 
         joint3d_video = batch[args.joint_data_type].cuda()
         if args.vision_guidance_ratio > 0:
-            video_rgb = batch.video_rgb.cuda()  # [B,T,H,W,3]
+            video_rgb = torch.stack(batch['video_rgb']).cuda()  # [B,T,H,W,3]
         else:
             video_rgb = None
 

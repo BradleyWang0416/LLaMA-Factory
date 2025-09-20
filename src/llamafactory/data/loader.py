@@ -325,6 +325,7 @@ def _get_preprocessed_dataset(
         dataset = processed_dataset
     
     else:
+        print(f'preprocessing_batch_size={data_args.preprocessing_batch_size}')
         dataset = dataset.map(
             dataset_processor.preprocess_dataset, # <--- 这个函数内部会调用 tokenizer, 见 src/llamafactory/data/processor/unsupervised.py
             batched=True,
@@ -332,6 +333,11 @@ def _get_preprocessed_dataset(
             remove_columns=column_names,
             **kwargs,
         )
+
+        training_args.output_dir
+
+
+        
     # Dataset({features: ['input_ids', 'attention_mask', 'labels', 'images', 'videos', 'audios'], num_rows: 6})
 
     if training_args.should_log:
