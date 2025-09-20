@@ -26,6 +26,11 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
     def __init__(self, config: Qwen2_5_VLConfig, **kwargs_byBrad):
         super().__init__(config)
 
+        ########## SKELETON ATTENTION PART #####################################################################################################################
+        self.skeleton_attention_type = kwargs_byBrad['skeleton_attention_type']
+        setattr(self.model, 'skeleton_attention_type', self.skeleton_attention_type)
+        setattr(self.model.language_model, 'skeleton_attention_type', self.skeleton_attention_type)
+
         ########## MPJPE EXRTA LOSS PART #####################################################################################################################   
         self.use_mpjpe_loss = kwargs_byBrad['use_mpjpe_loss']
         self.mpjpe_success_count = 0
@@ -275,6 +280,25 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
+
+        if self.skeleton_attention_type == 'base':
+            batch_size, num_token = input_ids.shape
+            skeleton_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+            for b in range(batch_size):
+                ids = input_ids[b]
+                # 找到所有 start/end 的位置
+                start_indices = (ids == self.config.skeleton_config['skeleton_start_token_id']).nonzero(as_tuple=True)[0]
+                end_indices = (ids == self.config.skeleton_config['skeleton_end_token_id']).nonzero(as_tuple=True)[0]
+                # 一一配对
+                for start, end in zip(start_indices, end_indices):
+                    skeleton_mask[b, start:end+1] = True
+            
+            kwargs['skeleton_mask'] = skeleton_mask
+
+
+
+
+
         outputs = self.model(
             input_ids=input_ids,
             pixel_values=pixel_values,
@@ -451,6 +475,18 @@ def custom_qwen2_5_vl_model_forward(
         )
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
+
+
+
+        if self.skeleton_attention_type == 'base':
+            assert (video_mask[:,:,:1] == video_mask[:,:,1:]).all()
+            video_mask_unpad = video_mask[:,:,0]    # [1,352]
+            kwargs['video_mask_unpad'] = video_mask_unpad
+
+
+
+
+
     if position_ids is None:
         # Calculate RoPE index once per generation in the pre-fill stage only.
         # When compiling, we can't check tensor values thus we check only input length
@@ -519,7 +555,6 @@ from transformers.cache_utils import DynamicCache
 
 logger = logging.get_logger(__name__)
 
-@auto_docstring
 def custom_qwen2_5_vltextmodel_forward(
     self,
     input_ids: Optional[torch.LongTensor] = None,
@@ -614,6 +649,24 @@ def custom_qwen2_5_vltextmodel_forward(
     # decoder layers
     all_hidden_states = () if output_hidden_states else None
     all_self_attns = () if output_attentions else None
+
+
+
+    if self.skeleton_attention_type == 'base':
+        skeleton_mask = kwargs.pop('skeleton_mask')
+        skeleton_mask = skeleton_mask.int()
+        skeleton_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, skeleton_mask)
+        skeleton_attention_mask = skeleton_attention_mask.unsqueeze(1)
+
+        video_mask_unpad = kwargs.pop('video_mask_unpad')
+        skeleton_video_cross_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, video_mask_unpad)
+        skeleton_video_cross_attention_mask = skeleton_video_cross_attention_mask.unsqueeze(1)
+
+
+        causal_mask_mapping['full_attention'] = causal_mask_mapping['full_attention'] | skeleton_attention_mask | skeleton_video_cross_attention_mask
+
+
+
 
     for decoder_layer in self.layers:
         if output_hidden_states:

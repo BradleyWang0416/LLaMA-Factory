@@ -211,6 +211,12 @@ class BaseModelArguments:
         metadata={"help": "must be a .py file path"},
     )
     #########################################################################################
+    # ADDED BY BRADLEY 250920 ####################################################################
+    skeleton_attention_type: str = field(
+        default=None,
+        metadata={"help": "需要在 src/llamafactory/model/patcher.py::patch_config 加入到 init_kwargs 中"},
+    )
+    #########################################################################################
 
     def __post_init__(self):
         if self.model_name_or_path is None:

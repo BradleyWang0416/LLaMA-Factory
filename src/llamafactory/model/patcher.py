@@ -190,6 +190,7 @@ def patch_config(
     else:
         init_kwargs['vqvae_config'] = model_args.vqvae_config
     init_kwargs['use_mpjpe_loss'] = model_args.use_mpjpe_loss
+    init_kwargs['skeleton_attention_type'] = model_args.skeleton_attention_type
     ###############################################################################################################
 
 
