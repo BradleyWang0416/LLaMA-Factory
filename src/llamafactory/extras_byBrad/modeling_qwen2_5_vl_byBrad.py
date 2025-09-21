@@ -18,9 +18,18 @@ from transformers.utils import can_return_tuple, auto_docstring
 from transformers.loss.loss_utils import fixed_cross_entropy, ForCausalLMLoss
 from safetensors.torch import load_file
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
-sys.path.append('/home/wxs/MTVCrafter/')
+sys.path.append('../MTVCrafter/')
 from models import HYBRID_VQVAE # type: ignore
-sys.path.remove('/home/wxs/MTVCrafter/')
+sys.path.remove('../MTVCrafter/')
+
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.modeling_outputs import BaseModelOutputWithPast
+from transformers.utils import logging
+from transformers.masking_utils import create_causal_mask
+from transformers.cache_utils import DynamicCache
+
+logger = logging.get_logger(__name__)
+
 
 class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGeneration):
     def __init__(self, config: Qwen2_5_VLConfig, **kwargs_byBrad):
@@ -28,14 +37,16 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
         ########## SKELETON ATTENTION PART #####################################################################################################################
         self.skeleton_attention_type = kwargs_byBrad['skeleton_attention_type']
+        if self.skeleton_attention_type is not None:
+            assert self.skeleton_attention_type in ['base', 'base_v2']
         setattr(self.model, 'skeleton_attention_type', self.skeleton_attention_type)
         setattr(self.model.language_model, 'skeleton_attention_type', self.skeleton_attention_type)
 
-        ########## MPJPE EXRTA LOSS PART #####################################################################################################################   
+        ########## MPJPE EXRTA LOSS PART ##################################################################################################################### 
         self.use_mpjpe_loss = kwargs_byBrad['use_mpjpe_loss']
         self.mpjpe_success_count = 0
 
-        ########## VQVAE PART #####################################################################################################################   
+        ########## VQVAE PART ##################################################################################################################### 
         if 'vqvae_ckpt' in kwargs_byBrad:
             print('\n'.join(['Warning!!! `vqvae_ckpt` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
             self.vqvae_ckpt = kwargs_byBrad['vqvae_ckpt']
@@ -52,10 +63,10 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
             self.vqvae_ckpt = vqvae_config.vqvae_config.resume_path
             self._skeleton_processor_container = [HYBRID_VQVAE(vqvae_config.vqvae_config.encoder,
-                                                              vqvae_config.vqvae_config.decoder, 
-                                                              vqvae_config.vqvae_config.vq, 
-                                                              vision_config=vqvae_config.vision_config, 
-                                                              joint_data_type=vqvae_config.vqvae_config.joint_data_type)]
+                                                               vqvae_config.vqvae_config.decoder, 
+                                                               vqvae_config.vqvae_config.vq, 
+                                                               vision_config=vqvae_config.vision_config, 
+                                                               joint_data_type=vqvae_config.vqvae_config.joint_data_type)]
 
         for param in self._skeleton_processor_container[0].parameters():
             param.requires_grad = False
@@ -99,7 +110,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         
         # 然后，手动将我们“隐藏”的 skeleton_processor 移动到相同的设备
         if hasattr(self, '_skeleton_processor_container'):
-            processor = self._skeleton_processor_container[0]            
+            processor = self._skeleton_processor_container[0]          
             # 检查 skeleton_processor 是否在 meta 设备上
             is_meta = any(p.is_meta for p in processor.parameters())
             
@@ -280,7 +291,8 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-
+        # MODIFIED BY GEMINI: 移除了在这里创建 skeleton_mask 的逻辑。
+        # 它将在 custom_qwen2_5_vltextmodel_forward 中被统一创建和处理。
         if self.skeleton_attention_type == 'base':
             batch_size, num_token = input_ids.shape
             skeleton_mask = torch.zeros_like(input_ids, dtype=torch.bool)
@@ -295,10 +307,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             
             kwargs['skeleton_mask'] = skeleton_mask
 
-
-
-
-
+        
         outputs = self.model(
             input_ids=input_ids,
             pixel_values=pixel_values,
@@ -340,7 +349,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
                     # 步骤 1: 识别真实 `labels` 中的骨架 token 区域
                     # is_gt_skeleton_mask: [B, L], bool, 标记哪些位置应该是骨架 token
-                    is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)    # [1,352]
+                    is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)   # [1,352]
 
                     # 如果当前批次中没有任何骨架 token，则直接跳过
                     if torch.any(is_gt_skeleton_mask):
@@ -416,7 +425,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             rope_deltas=outputs.rope_deltas,
         )
         
-        
+
 
 # 确保函数签名与原始 `Qwen2_5_VLModel.forward` 方法完全相同
 def custom_qwen2_5_vl_model_forward(
@@ -474,10 +483,12 @@ def custom_qwen2_5_vl_model_forward(
             input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
         )
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+    
 
 
 
-
+        # MODIFIED BY GEMINI: 移除了在这里创建和传递 video_mask_unpad 的逻辑。
+        # 它将在 custom_qwen2_5_vltextmodel_forward 中被统一创建和处理。
         if self.skeleton_attention_type == 'base':
             assert (video_mask[:,:,:1] == video_mask[:,:,1:]).all()
             video_mask_unpad = video_mask[:,:,0]    # [1,352]
@@ -521,7 +532,7 @@ def custom_qwen2_5_vl_model_forward(
             position_ids += delta.to(position_ids.device)
 
     outputs = self.language_model(
-        input_ids=None,
+        input_ids=input_ids, # MODIFIED BY GEMINI: 将 input_ids 传递下去，用于mask创建
         position_ids=position_ids,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
@@ -547,13 +558,117 @@ def custom_qwen2_5_vl_model_forward(
 
 
 
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.utils import logging
-from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
-from transformers.cache_utils import DynamicCache
 
-logger = logging.get_logger(__name__)
+# =================================================================================================
+# ================================ MODIFIED BY GEMINI: START ======================================
+# =================================================================================================
+
+
+# video_start_id = config.vision_start_token_id
+# video_end_id = config.vision_end_token_id
+# skeleton_start_id = config.skeleton_config['skeleton_start_token_id']
+# skeleton_end_id = config.skeleton_config['skeleton_end_token_id']
+def create_custom_pose_attention_mask(
+    input_ids: torch.Tensor,
+    base_causal_mask: torch.Tensor,
+    config: Qwen2_5_VLConfig,
+    is_training: bool,
+) -> torch.Tensor:
+    """
+    【最终版】根据训练或推理范式，创建用于视频姿态估计的、分块的布尔型注意力遮罩。
+
+    此函数能够精确处理文本、视频、骨架区域交错的复杂模板，并根据当前模式
+    (训练或推理) 应用正确的注意力规则。
+
+    - 训练模式 (is_training=True): 
+      为骨架token启用全连接注意力，以最高效地学习姿态的全局空间结构。
+
+    - 推理模式 (is_training=False): 
+      为骨架token强制使用因果注意力，以保证自回归生成过程的逻辑正确性。
+    
+    Args:
+        input_ids (torch.Tensor): 输入的 token ID 序列, shape [B, L].
+        base_causal_mask (torch.Tensor): Hugging Face 生成的基础因果遮罩 (下三角布尔矩阵).
+        config (Qwen2_5_VLConfig): 模型配置，用于获取特殊 token 的 ID。
+        is_training (bool): 当前是否处于训练模式。
+        
+    Returns:
+        torch.Tensor: 最终的、符合当前范式需求的注意力遮罩。
+    """
+    batch_size, seq_len = input_ids.shape
+    device = input_ids.device
+
+    # 步骤 1: 从配置中安全地获取所有需要的特殊 token ID
+    try:
+        # 注意：请再次确认这些 key 在您的 config 对象中路径正确
+        video_start_id = config.vision_start_token_id
+        video_end_id = config.vision_end_token_id
+        skeleton_start_id = config.skeleton_config['skeleton_start_token_id']
+        skeleton_end_id = config.skeleton_config['skeleton_end_token_id']
+    except (AttributeError, KeyError) as e:
+        # 如果配置不完整或任务不相关，打印警告并回退到原始的因果遮罩，增加代码稳健性
+        logger.warning_once(f"Could not find required special token IDs for custom attention mask ({e}). Falling back to causal mask.")
+        return base_causal_mask
+
+    # 步骤 2: 精确识别视频和骨架区域
+    # 初始化所有区域mask为False
+    video_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+    skeleton_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+
+    # 遍历batch中的每个样本，独立地识别其区域块
+    for b in range(batch_size):
+        ids = input_ids[b]
+        
+        # 识别所有视频块 (start...end)
+        vid_start_indices = (ids == video_start_id).nonzero(as_tuple=True)[0]
+        vid_end_indices = (ids == video_end_id).nonzero(as_tuple=True)[0]
+        for start, end in zip(vid_start_indices, vid_end_indices):
+            if start < end:
+                video_mask[b, start:end + 1] = True
+            
+        # 识别所有骨架块 (start...end)
+        skel_start_indices = (ids == skeleton_start_id).nonzero(as_tuple=True)[0]
+        skel_end_indices = (ids == skeleton_end_id).nonzero(as_tuple=True)[0]
+        for start, end in zip(skel_start_indices, skel_end_indices):
+            if start < end:
+                skeleton_mask[b, start:end + 1] = True
+
+    # 步骤 3: 识别文本区域
+    # 文本区域 = 非视频区域 AND 非骨架区域。这种定义方法非常稳健。
+    text_mask = ~(video_mask | skeleton_mask)
+
+    # 步骤 4: 构建两种范式共通的注意力规则
+    # 规则 A: Video Query -> (Text | Video) Key
+    video_to_text_video_mask = torch.einsum('bq,bk->bqk', video_mask, (text_mask | video_mask))
+    
+    # 规则 B: Skeleton Query -> (Text | Video) Key
+    skeleton_to_text_video_mask = torch.einsum('bq,bk->bqk', skeleton_mask, (text_mask | video_mask))
+
+    # 将这些共通规则应用到基础因果遮罩上。
+    # .squeeze(1) 是因为 base_causal_mask 的形状是 [B, 1, L, L]，需要与 [B, L, L] 的区域mask对齐
+    # .clone() 确保我们不会在原地修改原始mask，避免潜在的副作用
+    final_mask = base_causal_mask.squeeze(1).clone() | video_to_text_video_mask | skeleton_to_text_video_mask
+
+    # 步骤 5: 应用范式特定的规则 (这是整个逻辑的核心)
+    if is_training:
+        # --- 训练范式 ---
+        # 目标: 学习全局结构
+        # 行为: 打开 Skeleton -> Skeleton 的全连接注意力，允许模型看到完整的骨架结构。
+        
+        skeleton_to_skeleton_mask = torch.einsum('bq,bk->bqk', skeleton_mask, skeleton_mask)
+        final_mask = final_mask | skeleton_to_skeleton_mask
+    
+    # --- 推理范式 ---
+    # 在 is_training=False 的情况下，我们不执行任何额外操作。
+    # final_mask 中 `Skeleton -> Skeleton` 的注意力部分继承自 `base_causal_mask`，
+    # 它本身就是因果的。这优雅地满足了自回归生成的要求。
+
+    # 返回前，将mask的形状恢复为 [B, 1, L, L] 以匹配注意力层的期望输入
+    return final_mask.unsqueeze(1)
+# =================================================================================================
+# ================================= MODIFIED BY GEMINI: END =======================================
+# =================================================================================================
+
 
 def custom_qwen2_5_vltextmodel_forward(
     self,
@@ -577,8 +692,9 @@ def custom_qwen2_5_vltextmodel_forward(
 
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-    if (input_ids is None) ^ (inputs_embeds is not None):
-        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+    # MODIFIED BY GEMINI: 修改了这里的逻辑，因为我们需要 input_ids 来创建 mask
+    if input_ids is None and inputs_embeds is None:
+        raise ValueError("You must specify at least one of input_ids or inputs_embeds")
 
     if self.gradient_checkpointing and self.training:
         if use_cache:
@@ -593,6 +709,15 @@ def custom_qwen2_5_vltextmodel_forward(
 
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
+    
+    # MODIFIED BY GEMINI: 从 embeds 推断 input_ids, 以防外部只提供了 embeds
+    # 这是创建 mask 的一个后备方案，但可能不准确。最佳实践是始终提供 input_ids。
+    if input_ids is None:
+        raise NotImplementedError
+        logger.warning_once("`input_ids` is not provided. Custom attention mask may not be correctly applied.")
+        # 如果没有 input_ids, 我们无法创建自定义mask，只能回退到默认行为
+        input_ids = torch.zeros(inputs_embeds.shape[:2], dtype=torch.long, device=inputs_embeds.device)
+
 
     if cache_position is None:
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
@@ -606,16 +731,6 @@ def custom_qwen2_5_vltextmodel_forward(
     elif position_ids.ndim == 2:
         position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
-    # NOTE: we need to pass text position ids for packing. Qwen2-VL uses 3D positions
-    # where each dim indicates visual spatial positions for temporal/height/width grids.
-    # There are two scenarios when FA2-like packed masking might be activated.
-    # 1. User specifically passed packed `position_ids` and no attention mask.
-    #    In this case we expect the useer to create correct position ids for all 3 grids
-    #    and prepend text-only position ids to it. The final tensor will be [4, bs, seq-len]
-    # 2. User runs forward with no attention mask and no position ids. In this case, position ids
-    #    are prepared by the model (`get_rope_index`) as `[4, bs, seq-len]` tensor. Text-only positions are
-    #    prepended by us when creating positions so that the mask is constructed correctly. NOTE: failing to pass
-    #    text-only positions will cause incorrect mask construction, do not change `prepare_input_for_generation`
     if position_ids.ndim == 3 and position_ids.shape[0] == 4:
         text_position_ids = position_ids[0]
         position_ids = position_ids[1:]
@@ -638,8 +753,8 @@ def custom_qwen2_5_vltextmodel_forward(
             "full_attention": create_causal_mask(**mask_kwargs),
         }
         # The sliding window alternating layers are not always activated depending on the config
-        if self.has_sliding_layers:
-            causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
+        # if self.has_sliding_layers:
+        #     causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
 
     hidden_states = inputs_embeds
 
@@ -652,20 +767,43 @@ def custom_qwen2_5_vltextmodel_forward(
 
 
 
+
     if self.skeleton_attention_type == 'base':
         skeleton_mask = kwargs.pop('skeleton_mask')
         skeleton_mask = skeleton_mask.int()
         skeleton_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, skeleton_mask)
-        skeleton_attention_mask = skeleton_attention_mask.unsqueeze(1)
+        skeleton_attention_mask = skeleton_attention_mask.unsqueeze(1).bool()
 
         video_mask_unpad = kwargs.pop('video_mask_unpad')
         skeleton_video_cross_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, video_mask_unpad)
-        skeleton_video_cross_attention_mask = skeleton_video_cross_attention_mask.unsqueeze(1)
-
+        skeleton_video_cross_attention_mask = skeleton_video_cross_attention_mask.unsqueeze(1).bool()
 
         causal_mask_mapping['full_attention'] = causal_mask_mapping['full_attention'] | skeleton_attention_mask | skeleton_video_cross_attention_mask
 
 
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
+
+    elif self.skeleton_attention_type == 'base_v2':
+        # =================================================================================================
+        # ================================ MODIFIED BY GEMINI: START ======================================
+        # =================================================================================================
+        # 使用 hasattr 检查，以确保在没有设置此属性的模型上不会出错
+        # 调用我们创建的辅助函数来生成完整的、正确的遮罩
+        final_mask = create_custom_pose_attention_mask(
+            input_ids=input_ids,
+            base_causal_mask=causal_mask_mapping['full_attention'],
+            config=self.config,       # self.config 是从主模型传递过来的完整配置
+            is_training=self.training # self.training 可以正确判断当前是训练还是推理
+        )
+        causal_mask_mapping['full_attention'] = final_mask
+        # =================================================================================================
+        # ================================= MODIFIED BY GEMINI: END =======================================
+        # =================================================================================================
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
 
 
     for decoder_layer in self.layers:
@@ -674,7 +812,7 @@ def custom_qwen2_5_vltextmodel_forward(
 
         layer_outputs = decoder_layer(
             hidden_states,
-            attention_mask=causal_mask_mapping[decoder_layer.attention_type],
+            attention_mask=causal_mask_mapping.get(decoder_layer.attention_type, causal_mask_mapping["full_attention"]),
             position_ids=text_position_ids,
             past_key_value=past_key_values,
             output_attentions=output_attentions,
