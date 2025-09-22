@@ -341,86 +341,170 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)  # ForCausalLMLoss
-            # logits: [1,352,159872]; labels: [1,352]
-
-            # ADDED BY BRADLEY 250911 #################################################################################
-            mpjpe_loss = None
-            if self.use_mpjpe_loss and skeleton_poses is not None:
-                try:
-                    if not self.is_vqvae_weights_loaded:
-                        self.load_vqvae_weights()
-
-                    self._init_skeleton_parser() # 确保解析器已初始化
-
-                    # 步骤 1: 识别真实 `labels` 中的骨架 token 区域
-                    # is_gt_skeleton_mask: [B, L], bool, 标记哪些位置应该是骨架 token
-                    is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)   # [1,352]
-
-                    # 如果当前批次中没有任何骨架 token，则直接跳过
-                    if torch.any(is_gt_skeleton_mask):
-                        # 步骤 2: 获取模型在这些真实骨架区域的预测
-                        # pred_ids_in_gt_skel_region: [N], N 是骨架 token 的总数
-                        skel_logits = logits[is_gt_skeleton_mask]
-
-                        # 步骤 3: (可微分方式) 计算期望的VQ-VAE嵌入
-                        # 3.1 仅提取与骨架token相关的logits
-                        # skeleton_token_logits: [N, num_skeleton_tokens]
-                        skeleton_token_logits = skel_logits[:, self._skeleton_token_id_tensor]
-
-                        # 3.2 计算这些骨架token的概率分布
-                        # skeleton_probs: [N, num_skeleton_tokens]
-                        skeleton_probs = torch.softmax(skeleton_token_logits, dim=-1)
-
-                        # 3.3 获取VQ-VAE码本(codebook)的嵌入向量
-                        # vq_embeddings: [num_skeleton_tokens, code_dim]
-                        # 注意: VQ-VAE的参数需要是可访问的，并且不参与梯度更新
-                        vq_embeddings = self.skeleton_processor.vq.codebook.detach()
-
-                        # 3.4 通过加权平均计算期望的嵌入
-                        # expected_embedding: [N, code_dim]
-                        expected_embedding = torch.matmul(skeleton_probs, vq_embeddings)
-
-                        # 步骤 4: 解码期望嵌入以获得3D姿态
-                        # 假设每17个token为一帧
-                        num_frames = expected_embedding.size(0) // 17
-                        if num_frames > 0:
-                            # 截断并重塑以匹配解码器输入
-                            num_tokens_to_decode = num_frames * 17
-                            quantized = expected_embedding[:num_tokens_to_decode].view(1, num_frames, 17, -1)
-                            
-                            # 使用解码器直接从量化嵌入解码姿态
-                            # 注意: skeleton_processor.decode需要能处理嵌入向量
-                            # 如果它只能处理索引，则需要修改或使用其内部的解码器部分
-                            # 这里我们假设可以直接调用解码器
-                            pred_poses = self.skeleton_processor.decode_from_quantized(quantized)
-                            pred_poses = pred_poses.permute(0, 2, 3, 1) # [B, T, J, 3]
-                            # 裁剪真实姿态以匹配预测的长度
-                            T_pred = pred_poses.size(1)
-                            true_poses_sliced = skeleton_poses[0][None, :T_pred, :, :]
-
-                            # 计算 MPJPE 损失
-                            if true_poses_sliced.size(1) == T_pred:
-                                mpjpe_loss = self.compute_mpjpe_loss(pred_poses, true_poses_sliced)
 
 
-                except Exception as e:
-                    print(f"Could not compute MPJPE loss: {e}")
-                    mpjpe_loss = None
-            ###########################################################################################################
+            if self.skeleton_attention_type == 'nar':
+                assert not self.use_mpjpe_loss
+                # =================================================================================================
+                # ================================ MODIFIED BY GEMINI: START ======================================
+                # =================================================================================================
+                #                      --- Hybrid Causal & Non-Causal Loss Calculation ---
+                
+                # 假设: 您的配置文件中包含了 query token 的 ID 列表
+                # 例如: self.config.skeleton_config['query_token_ids'] = [id1, id2, ...]
+                # 为确保代码健壮性，我们使用 getattr 安全地获取它
+                query_token_config = getattr(self.config.skeleton_config, 'query_token_ids', None)
+                
+                # 初始化两个损失项
+                loss_causal = None
+                loss_non_causal = None
 
-            if mpjpe_loss is not None and torch.isfinite(mpjpe_loss):
-                mpjpe_loss_weight = getattr(self.config, "mpjpe_loss_weight", 0.1)
-                loss = loss + mpjpe_loss_weight * mpjpe_loss
-                self.mpjpe_success_count += 1
+                # --- 1. 计算 Non-Causal Loss (用于骨架内容填充) ---
+                if query_token_config is not None:
+                    query_token_ids = torch.tensor(query_token_config, device=input_ids.device)
+                    
+                    # is_query_mask: [B, L], bool, 标记出 input_ids 中所有 query token 的位置
+                    is_query_mask = torch.isin(input_ids, query_token_ids)
 
-                # 2. 添加条件打印逻辑
-                # 只在主进程 (rank 0) 打印，避免日志混乱
-                # 在第一次成功时打印，之后每100次成功打印一次
-                if int(os.getenv("LOCAL_RANK", "0")) == 0:
-                    if self.mpjpe_success_count == 1 or self.mpjpe_success_count % 100 == 0:
-                        print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>>> [Rank 0] MPJPE loss successfully applied <<<<<<<<<<<<<<<<<<<<<<<<<<")
-                        print(f">>>>>>>>>>>>>>>>>>>>>>>>>> Total application count: {self.mpjpe_success_count} <<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+                    if torch.any(is_query_mask):
+                        # 在 query 位置，labels 张量应该包含直接的、非移位的目标 (s_i)
+                        # 我们只在这些位置计算非因果损失
+                        
+                        # 从 logits 中提取 query 位置的预测
+                        query_logits = logits[is_query_mask]
+                        
+                        # 从 labels 中提取 query 位置的真实目标
+                        query_labels = labels[is_query_mask]
+                        
+                        # 直接计算交叉熵，没有任何 "shift"
+                        loss_non_causal = nn.functional.cross_entropy(
+                            query_logits.float(), 
+                            query_labels, 
+                            ignore_index=-100
+                        )
+
+                # --- 2. 计算 Causal Loss (用于结构生成) ---
+                # 为了计算因果损失，我们要屏蔽掉非因果的部分，避免它们干扰
+                causal_labels = labels.clone()
+                if 'is_query_mask' in locals() and torch.any(is_query_mask):
+                    causal_labels[is_query_mask] = -100  # 在计算因果损失时，忽略所有 query 的位置
+
+                # 使用您原来的、带内部移位的标准损失函数
+                loss_causal = self.loss_function(logits=logits, labels=causal_labels, vocab_size=self.config.vocab_size)
+
+                # --- 3. 合并损失 ---
+                # 我们从因果损失开始
+                total_loss = loss_causal if loss_causal is not None and torch.isfinite(loss_causal) else 0.0
+                
+                # 如果存在非因果损失，则按权重加上它
+                if loss_non_causal is not None and torch.isfinite(loss_non_causal):
+                    # 建议在 config 中定义一个权重，用于平衡两种损失
+                    non_causal_weight = getattr(self.config, "non_causal_loss_weight", 1.0)
+                    total_loss = total_loss + non_causal_weight * loss_non_causal
+
+                # --- 4. （可选）添加您已有的 MPJPE 辅助损失 ---
+                mpjpe_loss = None
+                if self.use_mpjpe_loss and skeleton_poses is not None:
+                    # ... 您原有的 MPJPE loss 计算逻辑 ...
+                    # (此处省略，您可以将您原来的代码直接复制过来)
+                    # ...
+                    # 假设您已计算出 mpjpe_loss
+                    pass # 替换为您的 MPJPE 实现
+
+                if mpjpe_loss is not None and torch.isfinite(mpjpe_loss):
+                    mpjpe_loss_weight = getattr(self.config, "mpjpe_loss_weight", 0.1)
+                    total_loss = total_loss + mpjpe_loss_weight * mpjpe_loss
+                    # ... 您的 mpjpe_success_count 和打印逻辑 ...
+
+                # 将最终计算出的 total_loss 赋给 loss
+                loss = total_loss if total_loss != 0.0 else None
+                # =================================================================================================
+                # ================================= MODIFIED BY GEMINI: END =======================================
+                # =================================================================================================
+
+
+
+            else:
+                loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size)  # ForCausalLMLoss
+                # logits: [1,352,159872]; labels: [1,352]
+
+                # ADDED BY BRADLEY 250911 #################################################################################
+                mpjpe_loss = None
+                if self.use_mpjpe_loss and skeleton_poses is not None:
+                    try:
+                        if not self.is_vqvae_weights_loaded:
+                            self.load_vqvae_weights()
+
+                        self._init_skeleton_parser() # 确保解析器已初始化
+
+                        # 步骤 1: 识别真实 `labels` 中的骨架 token 区域
+                        # is_gt_skeleton_mask: [B, L], bool, 标记哪些位置应该是骨架 token
+                        is_gt_skeleton_mask = torch.isin(labels, self._skeleton_token_id_tensor)   # [1,352]
+
+                        # 如果当前批次中没有任何骨架 token，则直接跳过
+                        if torch.any(is_gt_skeleton_mask):
+                            # 步骤 2: 获取模型在这些真实骨架区域的预测
+                            # pred_ids_in_gt_skel_region: [N], N 是骨架 token 的总数
+                            skel_logits = logits[is_gt_skeleton_mask]
+
+                            # 步骤 3: (可微分方式) 计算期望的VQ-VAE嵌入
+                            # 3.1 仅提取与骨架token相关的logits
+                            # skeleton_token_logits: [N, num_skeleton_tokens]
+                            skeleton_token_logits = skel_logits[:, self._skeleton_token_id_tensor]
+
+                            # 3.2 计算这些骨架token的概率分布
+                            # skeleton_probs: [N, num_skeleton_tokens]
+                            skeleton_probs = torch.softmax(skeleton_token_logits, dim=-1)
+
+                            # 3.3 获取VQ-VAE码本(codebook)的嵌入向量
+                            # vq_embeddings: [num_skeleton_tokens, code_dim]
+                            # 注意: VQ-VAE的参数需要是可访问的，并且不参与梯度更新
+                            vq_embeddings = self.skeleton_processor.vq.codebook.detach()
+
+                            # 3.4 通过加权平均计算期望的嵌入
+                            # expected_embedding: [N, code_dim]
+                            expected_embedding = torch.matmul(skeleton_probs, vq_embeddings)
+
+                            # 步骤 4: 解码期望嵌入以获得3D姿态
+                            # 假设每17个token为一帧
+                            num_frames = expected_embedding.size(0) // 17
+                            if num_frames > 0:
+                                # 截断并重塑以匹配解码器输入
+                                num_tokens_to_decode = num_frames * 17
+                                quantized = expected_embedding[:num_tokens_to_decode].view(1, num_frames, 17, -1)
+                                
+                                # 使用解码器直接从量化嵌入解码姿态
+                                # 注意: skeleton_processor.decode需要能处理嵌入向量
+                                # 如果它只能处理索引，则需要修改或使用其内部的解码器部分
+                                # 这里我们假设可以直接调用解码器
+                                pred_poses = self.skeleton_processor.decode_from_quantized(quantized)
+                                pred_poses = pred_poses.permute(0, 2, 3, 1) # [B, T, J, 3]
+                                # 裁剪真实姿态以匹配预测的长度
+                                T_pred = pred_poses.size(1)
+                                true_poses_sliced = skeleton_poses[0][None, :T_pred, :, :]
+
+                                # 计算 MPJPE 损失
+                                if true_poses_sliced.size(1) == T_pred:
+                                    mpjpe_loss = self.compute_mpjpe_loss(pred_poses, true_poses_sliced)
+
+
+                    except Exception as e:
+                        print(f"Could not compute MPJPE loss: {e}")
+                        mpjpe_loss = None
+                ###########################################################################################################
+
+                if mpjpe_loss is not None and torch.isfinite(mpjpe_loss):
+                    mpjpe_loss_weight = getattr(self.config, "mpjpe_loss_weight", 0.1)
+                    loss = loss + mpjpe_loss_weight * mpjpe_loss
+                    self.mpjpe_success_count += 1
+
+                    # 2. 添加条件打印逻辑
+                    # 只在主进程 (rank 0) 打印，避免日志混乱
+                    # 在第一次成功时打印，之后每100次成功打印一次
+                    if int(os.getenv("LOCAL_RANK", "0")) == 0:
+                        if self.mpjpe_success_count == 1 or self.mpjpe_success_count % 100 == 0:
+                            print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>>> [Rank 0] MPJPE loss successfully applied <<<<<<<<<<<<<<<<<<<<<<<<<<")
+                            print(f">>>>>>>>>>>>>>>>>>>>>>>>>> Total application count: {self.mpjpe_success_count} <<<<<<<<<<<<<<<<<<<<<<<<<<\n")
 
         return Qwen2_5_VLCausalLMOutputWithPast(
             loss=loss,
@@ -844,7 +928,7 @@ def custom_qwen2_5_vltextmodel_forward(
 
 
 
-    elif self.skeleton_attention_type == 'nar':    
+    elif self.skeleton_attention_type == 'nar':
         # 它接收1D的"信号"mask (mask_kwargs['attention_mask'])
         # 和基础的4D因果mask (causal_mask_mapping['full_attention'])
         final_mask = create_custom_pose_attention_mask_nar(
@@ -857,6 +941,9 @@ def custom_qwen2_5_vltextmodel_forward(
         
         # 3. 它输出一个构建好的、可供执行的4D mask
         causal_mask_mapping['full_attention'] = final_mask
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
 
 
 
