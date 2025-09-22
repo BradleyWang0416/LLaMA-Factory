@@ -35,7 +35,6 @@ from transformers.generation import GenerationMixin
 
 logger = logging.get_logger(__name__)
 
-
 class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGeneration):
     def __init__(self, config: Qwen2_5_VLConfig, **kwargs_byBrad):
         super().__init__(config)
@@ -402,20 +401,6 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                     non_causal_weight = getattr(self.config, "non_causal_loss_weight", 1.0)
                     total_loss = total_loss + non_causal_weight * loss_non_causal
 
-                # --- 4. （可选）添加您已有的 MPJPE 辅助损失 ---
-                mpjpe_loss = None
-                if self.use_mpjpe_loss and skeleton_poses is not None:
-                    # ... 您原有的 MPJPE loss 计算逻辑 ...
-                    # (此处省略，您可以将您原来的代码直接复制过来)
-                    # ...
-                    # 假设您已计算出 mpjpe_loss
-                    pass # 替换为您的 MPJPE 实现
-
-                if mpjpe_loss is not None and torch.isfinite(mpjpe_loss):
-                    mpjpe_loss_weight = getattr(self.config, "mpjpe_loss_weight", 0.1)
-                    total_loss = total_loss + mpjpe_loss_weight * mpjpe_loss
-                    # ... 您的 mpjpe_success_count 和打印逻辑 ...
-
                 # 将最终计算出的 total_loss 赋给 loss
                 loss = total_loss if total_loss != 0.0 else None
                 # =================================================================================================
@@ -517,7 +502,6 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         
 
 
-
     def _update_model_kwargs_for_generation(
         self,
         outputs,
@@ -532,16 +516,24 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         """
         # 1. 首先，调用父类的原始方法来处理标准更新（例如KV缓存）
         # 这样可以确保我们不会破坏任何基类功能
+        
         model_kwargs = super()._update_model_kwargs_for_generation(
             outputs, model_kwargs, is_encoder_decoder, standardize_cache_format
-        )
+        )        
+
+        if self.skeleton_attention_type != 'nar':
+            return model_kwargs
         
+
         # 2. 关键：根据是否进入姿态生成模式，来扩展 attention_mask
         if "attention_mask" in model_kwargs:
             attention_mask = model_kwargs["attention_mask"]
             if next_is_pose_block:
                 # 如果下一轮是姿态生成，拼接 num_pose_tokens 个值为 2 的信号
-                num_pose_tokens = 80 # 您可以根据VQVAE的设置调整
+                num_pose_tokens = 80 # 您可以根据VQVAE的设置调整.
+                # TODO
+                # num_pose_tokens 这个数字必须与您在config.json中定义的query_token_ids列表的长度严格相等。如果未来您调整了配置（比如改成40或100个查询token），但忘记修改这里的80，生成过程将会出错且难以调试。
+                # 修复建议: 让配置文件成为唯一的真实来源 (Single Source of Truth) 
                 pose_mask_signal = torch.full(
                     (attention_mask.shape[0], num_pose_tokens), 
                     2, 
@@ -555,106 +547,158 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
 
     # <<< 新增/重载方法 2: 核心生成循环 >>>
     # 这是对 _sample 方法的重载，以实现我们的混合生成逻辑
+# <<< 新增/重载方法 2: 核心生成循环 (已由Gemini修复) >>>
+    # 这是对 _sample 方法的重载，以实现我们的混合生成逻辑
     def _sample(
-            self,
-            input_ids: torch.LongTensor,
-            logits_processor: Optional[LogitsProcessorList] = None,
-            stopping_criteria: Optional[StoppingCriteriaList] = None,
-            generation_config: Optional[GenerationConfig] = None,
-            synced_gpus: bool = False,
-            streamer: Optional["BaseStreamer"] = None,
-            **model_kwargs,
-        ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
-            
-            # --- 初始化 (与Hugging Face标准实现一致) ---
-            logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
-            stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
-            pad_token_id = generation_config.pad_token_tensor
-            eos_token_id = generation_config.eos_token_id
-            output_scores = generation_config.output_scores
-            output_logits = generation_config.output_logits
-            output_attentions = generation_config.output_attentions
-            output_hidden_states = generation_config.output_hidden_states
-            return_dict_in_generate = generation_config.return_dict_in_generate
-            
-            # --- 混合AR-NAR逻辑的核心 ---
-            skel_start_id = self.config.skeleton_config['skeleton_start_token_id']
-            skel_end_id = self.config.skeleton_config['skeleton_end_token_id']
-            num_pose_tokens = 80 # 您需要根据VQVAE设置定义这个值
-            
-            # 核心状态标志
-            next_is_pose_block = False
-            
-            # 初始化返回用的元组
-            scores = () if (return_dict_in_generate and output_scores) else None
-            raw_logits = () if (return_dict_in_generate and output_logits) else None
-            
-            unfinished_sequences = torch.ones(input_ids.shape[0], device=input_ids.device, dtype=torch.long)
-            
-            # 获取标准的 while 循环 (这是从您贴出的 _sample 代码中复制的)
-            while self._has_unfinished_sequences(False, synced_gpus, device=input_ids.device):
-                # 1. 准备模型输入
-                model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+        self,
+        input_ids: torch.LongTensor,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        synced_gpus: bool = False,
+        streamer: Optional["BaseStreamer"] = None,
+        **model_kwargs,
+    ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
+        
+        if self.skeleton_attention_type != 'nar':
+            return super()._sample(
+                input_ids,
+                logits_processor=logits_processor,
+                stopping_criteria=stopping_criteria,
+                generation_config=generation_config,
+                synced_gpus=synced_gpus,
+                streamer=streamer,
+                **model_kwargs,
+            )
+        
+        # --- 初始化 (与Hugging Face标准实现一致) ---
+        logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
+        stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+        pad_token_id = generation_config.pad_token_id
+        eos_token_id = generation_config.eos_token_id
+        if isinstance(eos_token_id, int):
+            eos_token_id = [eos_token_id] # 确保eos_token_id是列表，便于处理
+        output_scores = generation_config.output_scores
+        output_logits = generation_config.output_logits
+        output_attentions = generation_config.output_attentions
+        output_hidden_states = generation_config.output_hidden_states
+        return_dict_in_generate = generation_config.return_dict_in_generate
+        
+        # --- 混合AR-NAR逻辑的核心 ---
+        # 从配置中读取特殊token ID和参数
+        skel_start_id = self.config.skeleton_config['skeleton_start_token_id']
+        skel_end_id = self.config.skeleton_config['skeleton_end_token_id']
+        
+        # ================================ MODIFIED BY GEMINI: START =...
+        # 从配置中读取查询token ID和数量，不再硬编码
+        query_token_ids = self.config.skeleton_config.get('skeleton_query_token_indices')
+        if query_token_ids is None:
+            raise ValueError("`query_token_ids` must be defined in `config.skeleton_config` for NAR generation.")
+        num_pose_tokens = len(query_token_ids)
+        query_tokens_tensor = torch.tensor(query_token_ids, device=input_ids.device, dtype=torch.long).unsqueeze(0)
+        # ================================ ...MODIFIED BY GEMINI: END =...
 
-                # 2. 前向传播
-                outputs = self(**model_inputs, return_dict=True)
+        # 核心状态标志
+        next_is_pose_block = False
+        
+        # 初始化返回用的元组
+        scores = () if (return_dict_in_generate and output_scores) else None
+        raw_logits = () if (return_dict_in_generate and output_logits) else None
+        
+        unfinished_sequences = torch.ones(input_ids.shape[0], device=input_ids.device, dtype=torch.long)
+        
+        # 获取标准的 while 循环 (这是从您贴出的 _sample 代码中复制的)
+        iter_cnt = 0
+        while True:
+            # 1. 准备模型输入
+            model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
-                # 3. 根据状态标志，选择不同的 logits
-                if next_is_pose_block:
-                    # --- NAR 模式 ---
-                    next_token_logits = outputs.logits[:, -num_pose_tokens:, :]
-                    next_is_pose_block = False # 重置状态
-                else:
-                    # --- AR 模式 ---
-                    next_token_logits = outputs.logits[:, -1, :] # 注意这里与标准_sample的形状差异
+            # 2. 前向传播
+            outputs = self(**model_inputs, return_dict=True)
 
-                # 4. Logits处理和解码
-                if next_token_logits.ndim == 3 and next_token_logits.shape[1] == 1:
-                    next_token_logits = next_token_logits.squeeze(1) # 保持与logits_processor期望的形状一致
-                
-                next_token_scores = logits_processor(input_ids, next_token_logits)
-                
-                # 采样/Greedy
-                probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
-                predicted_tokens = torch.multinomial(probs, num_samples=1)
-
-                # --- 更新序列和状态 ---
-                # 5. 检查是否触发了 NAR 模式
-                if predicted_tokens.shape[1] == 1 and predicted_tokens.item() == skel_start_id:
-                    next_is_pose_block = True
-                    # 将 <skel_start> token 加到序列中
-                    input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
-                    # 为下一轮准备 placeholder IDs
-                    placeholder_ids = torch.full((input_ids.shape[0], num_pose_tokens), -1, device=input_ids.device, dtype=torch.long)
-                    input_ids = torch.cat([input_ids, placeholder_ids], dim=-1)
-                
-                elif predicted_tokens.shape[1] == num_pose_tokens:
-                    # 如果刚刚生成了一个姿态块 (NAR)
-                    # 用真实的预测结果替换掉之前的占位符
-                    input_ids[:, -num_pose_tokens:] = predicted_tokens
-                    # 自动拼接一个结束符
-                    end_token = torch.full((input_ids.shape[0], 1), skel_end_id, device=input_ids.device, dtype=torch.long)
-                    input_ids = torch.cat([input_ids, end_token], dim=-1)
-                else:
-                    # 如果是普通AR步骤
-                    input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
-
-                # 6. 更新KV缓存和attention_mask
-                model_kwargs = self._update_model_kwargs_for_generation(
-                    outputs, model_kwargs, next_is_pose_block=next_is_pose_block
-                )
-                
-                # 7. 检查停止条件
-                unfinished_sequences = unfinished_sequences & (predicted_tokens.view(-1)[0] != eos_token_id)
-                if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
-                    break
-
-            # 返回与原始 _sample 方法兼容的输出
-            if return_dict_in_generate:
-                # (这里可以根据需要填充完整的输出字典)
-                return GenerateDecoderOnlyOutput(sequences=input_ids, scores=scores, logits=raw_logits)
+            # 3. 根据状态标志，选择不同的 logits
+            if next_is_pose_block:
+                # --- NAR 模式 ---
+                # 提取与查询token对应的logits。这里假设查询token在序列末尾
+                # TODO
+                # 这行代码在您当前的实现中是有效且正确的，因为它假设了查询/占位符块总是在序列的末尾。
+                # 这只是一个提醒，如果未来您的生成逻辑变得更复杂（例如在姿态块后继续生成其他文本），这里可能需要调整为更稳健的、基于attention_mask == 2信号的索引方式来精确定位logits。目前无需修改。
+                # 答案在于生成循环 (_sample方法) 的执行时序。这行代码的正确性，依赖于在执行非自回归（NAR）前向传播的那一特定瞬间，input_ids 张量的状态。
+                # [:, -num_pose_tokens:, :] 之所以正确，并非因为查询块在最终序列的末尾，而是因为在执行非自回归（NAR）前向传播的那一瞬间，您的代码逻辑确保了查询占位符块被临时地放置在了输入序列的末尾。
+                next_token_logits = outputs.logits[:, -num_pose_tokens:, :]
+                next_is_pose_block = False # 重置状态
             else:
-                return input_ids
+                # --- AR 模式 ---
+                next_token_logits = outputs.logits[:, -1, :]
+
+            # 4. Logits处理和解码
+            # 确保 next_token_logits 是 2D 的
+            if next_token_logits.ndim == 3 and next_token_logits.shape[1] > 1:
+                # 这是NAR模式，需要处理整个块
+                # LogitsProcessor通常用于单个token，这里我们直接处理
+                next_token_scores = next_token_logits
+            else:
+                # 这是AR模式
+                if next_token_logits.ndim == 3 and next_token_logits.shape[1] == 1:
+                    next_token_logits = next_token_logits.squeeze(1)
+                next_token_scores = logits_processor(input_ids, next_token_logits)
+            
+            # 采样/Greedy
+            probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
+            # .view(input_ids.shape[0], -1, probs.shape[-1]) 确保形状正确
+            probs = probs.view(input_ids.shape[0], -1, probs.shape[-1])
+            predicted_tokens = torch.multinomial(probs.view(-1, probs.shape[-1]), num_samples=1).view(probs.shape[0], probs.shape[1])
+
+
+            # --- 更新序列和状态 ---
+            # 5. 检查是否触发了 NAR 模式
+            if predicted_tokens.shape[1] == 1 and predicted_tokens.item() == skel_start_id:
+                next_is_pose_block = True
+                # 将 <skel_start> token 加到序列中
+                input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
+
+                # ================================ MODIFIED BY GEMINI: START =...
+                # 为下一轮准备合法的查询token，不再使用-1
+                input_ids = torch.cat([input_ids, query_tokens_tensor], dim=-1)
+                # ================================ ...MODIFIED BY GEMINI: END =...
+            
+            elif predicted_tokens.shape[1] == num_pose_tokens:
+                # 如果刚刚生成了一个姿态块 (NAR)
+                # 用真实的预测结果替换掉之前的查询占位符
+                input_ids[:, -num_pose_tokens:] = predicted_tokens
+                # 自动拼接一个结束符
+                end_token = torch.full((input_ids.shape[0], 1), skel_end_id, device=input_ids.device, dtype=torch.long)
+                input_ids = torch.cat([input_ids, end_token], dim=-1)
+            else:
+                # 如果是普通AR步骤
+                input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
+
+            # 6. 更新KV缓存和attention_mask
+            model_kwargs = self._update_model_kwargs_for_generation(
+                outputs, model_kwargs, next_is_pose_block=next_is_pose_block
+            )
+            
+            # ================================ MODIFIED BY GEMINI: START =...
+            # 7. 检查停止条件 (已修复)
+            # 只在AR步骤（生成单个token时）检查是否满足停止条件
+            if predicted_tokens.shape[1] == 1:
+                # `item()` a `tensor` with one element is deprecated
+                if predicted_tokens[0].item() in eos_token_id:
+                        unfinished_sequences.fill_(0)
+            
+            if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
+                break
+            # ================================ ...MODIFIED BY GEMINI: END =...
+
+            iter_cnt += 1
+
+            
+        # 返回与原始 _sample 方法兼容的输出
+        if return_dict_in_generate:
+            # (这里可以根据需要填充完整的输出字典)
+            return GenerateDecoderOnlyOutput(sequences=input_ids, scores=scores, logits=raw_logits)
+        else:
+            return input_ids
 
 
 
