@@ -1,0 +1,150 @@
+src/llamafactory/train/sft/workflow.py
+
+debug console输入:
+    len(dataset_module['train_dataset'][0]['input_ids'])
+debug console输出：
+    348
+
+debug console输入:
+    tokenizer.decode(dataset_module['train_dataset'][0]['input_ids'])
+debug console输出（一个字符串, 为了方便阅读手动分行）：
+    <|im_start|>system\nYou are a helpful assistant.<|im_end|>
+    \n
+    <|im_start|>user
+    \n
+    Please provide the skeletal representation for the movement in the video 
+    <|vision_start|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|video_pad|>
+    <|vision_end|>. 
+    Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: 
+    <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.<|im_end|>
+    \n
+    <|im_start|>assistant\n<|skel_start|>
+    <torso><skel_316><skel_2918><skel_1914><skel_3313><skel_1485></torso><left_arm><skel_1305><skel_3753><skel_2809></left_arm><right_arm><skel_2606><skel_1532><skel_854></right_arm><left_leg><skel_3749><skel_1875><skel_538></left_leg><right_leg><skel_649><skel_3397><skel_1369></right_leg><|frame_break|>
+    <torso><skel_374><skel_2882><skel_3435><skel_862><skel_1950></torso><left_arm><skel_3715><skel_3477><skel_3327></left_arm><right_arm><skel_928><skel_3408><skel_3110></right_arm><left_leg><skel_1732><skel_1158><skel_3890></left_leg><right_leg><skel_4005><skel_3178><skel_1193></right_leg><|frame_break|>
+    <torso><skel_316><skel_338><skel_1206><skel_3298><skel_599></torso><left_arm><skel_612><skel_368><skel_2853></left_arm><right_arm><skel_2360><skel_2982><skel_2430></right_arm><left_leg><skel_152><skel_1875><skel_2998></left_leg><right_leg><skel_1409><skel_2128><skel_1369></right_leg><|frame_break|>
+    <torso><skel_374><skel_1089><skel_3435><skel_862><skel_1950></torso><left_arm><skel_1193><skel_3275><skel_2156></left_arm><right_arm><skel_3162><skel_2752><skel_1835></right_arm><left_leg><skel_907><skel_2300><skel_206></left_leg><right_leg><skel_228><skel_3178><skel_1193></right_leg>
+    <|skel_end|><|im_end|>
+    \n
+
+
+src/llamafactory/extras_byBrad/modeling_qwen2_5_vl_byBrad.py::Qwen2_5_VLForConditionalGenerationWithSkeleton::forward
+debug console输入:
+    input_ids.shape
+debug console输出:
+    [1, 352]
+    多了4个id为151643的token，对应<|endoftext|>
+
+debug console输入:
+    input_ids
+debug console输出:
+    tensor([[151644,   8948,    198,   2610,    525,    264,  10950,  17847,     13,
+             151645,    198, 151644,    872,    198,   5501,   3410,    279,  68297,
+              13042,    369,    279,   7203,    304,    279,   2766,    220, 
+             # [0:26]
+             # '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nPlease provide the skeletal representation for the movement in the video '
+    ------------------------------------------------------------------------------------------------------------- 
+             
+             151652,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656, 151656,
+             151656, 151656, 151656, 151656, 151656, 151656, 151656, 
+             151653,
+             # [26:26+162]=[26:188]
+             # '<|vision_start|><|video_pad|>...<|video_pad|><|vision_end|>'
+    ------------------------------------------------------------------------------------------------------------- 
+
+             13,       5443,    220, 155763,    311,   8651,  14087,     13,   4615,   2033,
+               1969,    387,  32930,    369,   1817,   4034,   1667,    678,   4236,
+               2487,    949,   9492,     25,    220, 155764,   1112, 155765, 155766,
+               1112, 155767, 155768,   1112, 155769, 155770,   1112, 155771, 155772,
+               1112, 155773,     13, 151645,    198, 151644,  77091,    198, 
+             # [26+162:26+162+45]=[188:233]
+             # '. Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.<|im_end|>\n<|im_start|>assistant\n'
+    ------------------------------------------------------------------------------------------------------------- 
+               
+             155761,
+             155764, 152374, 153651, 151796, 154790, 153336, 155765, 155766, 155531,
+             152829, 155172, 155767, 155768, 153138, 154010, 152741, 155769, 155770,
+             153582, 155037, 155149, 155771, 155772, 153392, 152913, 151780, 155773,
+             155763, 155764, 154292, 152066, 152160, 154419, 153372, 155765, 155766,
+             154657, 153617, 154344, 155767, 155768, 155223, 152073, 154520, 155769,
+             155770, 153237, 154281, 153404, 155771, 155772, 152421, 153255, 155614,
+             155773, 155763, 155764, 154175, 152933, 153413, 154816, 155577, 155765,
+             155766, 155531, 153622, 155325, 155767, 155768, 154825, 155085, 154159,
+             155769, 155770, 155288, 152003, 155398, 155771, 155772, 155474, 152913,
+             152525, 155773, 155763, 155764, 154292, 154398, 152887, 153371, 151918,
+             155765, 155766, 153958, 153617, 154344, 155767, 155768, 155223, 152073,
+             152888, 155769, 155770, 154031, 154281, 153795, 155771, 155772, 152421,
+             153255, 155614, 155773, 
+             155762, 
+             # [26+162+45:26+162+45+113]=[233:346]
+             # '<|skel_start|><torso><skel_709><skel_1986><skel_131><skel_3125><skel_1671></torso><left_arm><skel_3866><skel_1164><skel_3507></left_arm><right_arm><skel_1473><skel_2345><skel_1076></right_arm><left_leg><skel_1917><skel_3372><skel_3484></left_leg><right_leg><skel_1727><skel_1248><skel_115></right_leg><|frame_break|><torso><skel_2627><skel_401><skel_495><skel_2754><skel_1707></torso><left_arm><skel_2992><skel_1952><skel_2679></left_arm><right_arm><skel_3558><skel_408><skel_2855></right_arm><left_leg><skel_1572><skel_2616><skel_1739></left_leg><right_leg><skel_756><skel_1590><skel_3949></right_leg><|frame_break|><torso><skel_2510><skel_1268><skel_1748><skel_3151><skel_3912></torso><left_arm><skel_3866><skel_1957><skel_3660></left_arm><right_arm><skel_3160><skel_3420><skel_2494></right_arm><left_leg><skel_3623><skel_338><skel_3733></left_leg><right_leg><skel_3809><skel_1248><skel_860></right_leg><|frame_break|><torso><skel_2627><skel_2733><skel_1222><skel_1706><skel_253></torso><left_arm><skel_2293><skel_1952><skel_2679></left_arm><right_arm><skel_3558><skel_408><skel_1223></right_arm><left_leg><skel_2366><skel_2616><skel_2130></left_leg><right_leg><skel_756><skel_1590><skel_3949></right_leg><|skel_end|>'
+    ------------------------------------------------------------------------------------------------------------- 
+             
+             151645,    198, 151643, 151643, 151643,
+             151643
+             # [26+162+45+113:26+162+45+113+6]=[346:352]
+             # '<|im_end|>\n<|endoftext|><|endoftext|><|endoftext|><|endoftext|>'
+    ------------------------------------------------------------------------------------------------------------- 
+
+             ]], device='cuda:0')
+
+    统计:
+    151656: '<|video_pad|>' 160个
+
+
+src/llamafactory/extras_byBrad/modeling_qwen2_5_vl_byBrad.py::custom_qwen2_5_vl_model_forward
+
+    pixel_values_videos.shape = [640,1176]
+    video_grid_thw = tensor([[ 8, 10,  8]], device='cuda:0')
+    video_embeds.shape = [160,3584]
+    inputs_embeds.shape = [1,352,3584]
+
+
+src/llamafactory/extras_byBrad/modeling_qwen2_5_vl_byBrad.py::custom_qwen2_5_vltextmodel_forward
+
+    causal_mask_mapping['full_attention'].shape = [1,1,352,352]
+
+    causal_mask_mapping['full_attention'][0,0].int().cpu()
+    torch.tril(torch.ones(352,352))
+
+    causal_mask_mapping['full_attention'][0,0].int().cpu().sum() = 62118
+    torch.tril(torch.ones(352,352)).sum() = 62128
+
+    non_causual_row_ids=[]
+    for row_id in range(352):
+    if not ((tmp[row_id,:row_id+1] == 1).all() and (tmp[row_id,row_id+1:] == 0).all()):
+        non_causual_row_ids.append(row_id)
+    >>> non_causual_row_ids: [348, 349, 350, 351]
+
+    # 分析：右下角4x4矩阵块对应<|endoftext|>，其余元素完全按照下三角矩阵排列

@@ -1,8 +1,41 @@
 import re
 from ..extras.constants import (SKELETON_TOKEN_BASE, SKELETON_FRAME_BREAK, 
                                 BODY_PART_ORDER, BODY_PART_TOKENS, JOINT_GROUP_MAP,
-                                JOINT_ORDER, JOINT_TOKENS
+                                JOINT_ORDER, JOINT_TOKENS,
+                                SKELETON_QUERY_BASE
                                 )
+
+
+def get_skeleton_token_str_woBodyPart_woFramebreak(skeleton_indices):
+    frame_strings = []
+    for frame_indices in skeleton_indices: # 遍历每一帧
+        # 将一帧内的关节索引转换为 <skel_i> 字符串
+        joint_str = "".join([SKELETON_TOKEN_BASE.format(i) for i in frame_indices])
+        frame_strings.append(joint_str)
+    
+    # 4. 使用 "换帧符" 连接所有帧
+    skeleton_token_str = ''.join(frame_strings)
+    return skeleton_token_str
+
+def parse_skeleton_token_str_woBodyPart_woFramebreak(skeleton_token_str):
+    """
+    从 skeleton token 字符串解析出 skeleton indices
+    
+    Args:
+        skeleton_token_str: 格式化的骨架 token 字符串，如：
+            "<skel_1><skel_2>...<skel_16><|frame_break|><skel_0><skel_1>..."
+    
+    Returns:
+        skeleton_indices: List[List[int]], 形状为 (T, J)，T是帧数，J是关节数(17)
+    """
+    # 预编译正则表达式以提高性能
+    skel_pattern = re.compile(r'<skel_(\d+)>')
+    matches = skel_pattern.findall(skeleton_token_str)
+    
+    # 3. 转换为整数列表
+    skeleton_indices = [int(match) for match in matches]
+        
+    return skeleton_indices
 
 
 def get_skeleton_token_str_woBodyPart(skeleton_indices):

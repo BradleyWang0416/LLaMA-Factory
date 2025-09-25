@@ -1,0 +1,48 @@
+model_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/merge/checkpoint-7600
+vqvae_config: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/vqvae_config.py
+
+skeleton_attention_type: nar
+num_skeleton_query_tokens: 68 # 4*17
+
+# video_max_pixels: 49168   # 192*256+16. default: 16384=128*128
+video_max_pixels: 16384   # 192*256+16. default: 16384=128*128
+
+
+
+eval_dataset: Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_test
+
+
+get_skel_str_func: get_skeleton_token_str_woBodyPart_woFramebreak       # used in train and infer
+parse_skel_str_func: parse_skeleton_token_str_woBodyPart_woFramebreak   # only used in infer
+
+max_samples: 512
+
+# add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+
+resize_vocab: true
+
+
+# vqvae_ckpt: /home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000  # only used in infer
+# codebook_size: 4096
+
+image_max_pixels: 262144
+trust_remote_code: true
+
+### method
+stage: sft
+do_predict: true
+predict_with_generate: true
+
+### dataset
+template: qwen2_vl
+cutoff_len: 2048
+overwrite_cache: true
+
+low_cpu_mem_usage: False
+preprocessing_batch_size: 16
+preprocessing_num_workers: 128
+dataloader_num_workers: 32
+# preprocessing_num_workers: 1    # 使用 16 在 src/llamafactory/data/loader.py 中的 dataset.map 这一步会报错
+# dataloader_num_workers: 1

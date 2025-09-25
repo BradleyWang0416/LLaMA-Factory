@@ -35,7 +35,7 @@ from .model_utils.quantization import configure_quantization
 from .model_utils.rope import configure_rope
 from .model_utils.valuehead import prepare_valuehead_model
 from .model_utils.visual import autocast_projector_dtype, configure_visual_model
-from ..extras.constants import SKELETON_TOKEN_BASE
+from ..extras.constants import SKELETON_TOKEN_BASE, SKELETON_QUERY_BASE
 
 
 if TYPE_CHECKING:
@@ -92,7 +92,18 @@ def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArgument
             model_args.resize_vocab = True
             logger.warning_rank0("New codebook tokens have been added, changed `resize_vocab` to True.")
     ##############################################################################################################
-
+    
+    # ADDED BY BRADLEY 250922 ###############################################################
+    if model_args.skeleton_attention_type == 'nar':
+        assert model_args.num_skeleton_query_tokens is not None and model_args.num_skeleton_query_tokens > 0, f"`num_skeleton_query_tokens` must be a positive integer to use NAR skeleton attention."
+        num_skeleton_query_tokens = model_args.num_skeleton_query_tokens
+        new_skeleton_query_tokens = [SKELETON_QUERY_BASE.format(i) for i in range(num_skeleton_query_tokens)]
+        num_added_skeleton_query_tokens = tokenizer.add_tokens(new_tokens=new_skeleton_query_tokens, special_tokens=True)
+        logger.info_rank0("Add skeleton query tokens ...{} to tokenizer's vocabulary.".format(",".join(new_skeleton_query_tokens[-10:])))
+        if num_added_skeleton_query_tokens > 0 and not model_args.resize_vocab:
+            model_args.resize_vocab = True
+            logger.warning_rank0("New codebook tokens have been added, changed `resize_vocab` to True.")
+    #########################################################################################
 
     if model_args.add_special_tokens is not None:
         num_added_special_tokens = tokenizer.add_tokens(new_tokens=model_args.add_special_tokens, special_tokens=True)

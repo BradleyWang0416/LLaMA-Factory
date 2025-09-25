@@ -13,7 +13,7 @@ export PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT=5
 #     > $LOG &
 
 ALLOW_EXTRA_ARGS=true \
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=5 \
     torchrun --nproc_per_node 1 -m debugpy --listen 5678 --wait-for-client \
     src/llamafactory/launcher.py \
     $CONFIG

@@ -961,5 +961,32 @@
       "videos": "videos",
       "skeletons": "skeletons"
     }
+  },
+  "Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_train_debug": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256/debug/train.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_test": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
+  },
+  "Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_test_debug": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256/debug/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
   }
 }

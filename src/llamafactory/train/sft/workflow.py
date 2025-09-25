@@ -61,8 +61,19 @@ def run_sft(
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     
 
-    if 'debugpy' in sys.modules and training_args.do_train:
-        data_args.max_samples = 4
+    if 'debugpy' in sys.modules and (training_args.do_train or training_args.do_predict):
+        # finetuning_args.lora_rank = 2
+        data_args.max_samples = 1
+        # training_args.save_steps = 1
+        try:
+            import copy
+            data_args_tmp = copy.deepcopy(data_args)
+            data_args_tmp.dataset[0] = data_args_tmp.dataset[0] + '_debug'
+            dataset_module = get_dataset(template, model_args, data_args_tmp, training_args, stage="sft", **tokenizer_module)
+
+            data_args.dataset[0] = data_args.dataset[0] + '_debug'
+        except:
+            pass
     
 
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)

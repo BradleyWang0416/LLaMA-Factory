@@ -289,56 +289,15 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         source_slice_id = None,  # 用于解码的源切片ID
         # --------------------
         **kwargs: Unpack[TransformersKwargs],
-    ) -> Union[tuple, Qwen2_5_VLCausalLMOutputWithPast]:     
-
-
-
-
-
-        # --- 动态替换逻辑的起点 ---
-        if self.training and self.skeleton_attention_type == 'nar':
-            # 1. 从config获取所有骨架内容token ID和query token ID
-            skeleton_token_indices = self.config.skeleton_config['skeleton_token_indices']
-            query_token_ids = self.config.skeleton_config['skeleton_query_token_indices']
-            
-            # 创建一个副本以进行修改
-            input_ids_modified = input_ids.clone()
-            
-            # 2. 遍历batch中的每个样本
-            for i in range(input_ids.shape[0]):
-                sequence = input_ids[i]
-                
-                # 3. 找到当前样本中所有骨架内容token的位置
-                # is_skeleton_content_token是一个布尔张量
-                is_skeleton_content_token = torch.isin(sequence, torch.tensor(skeleton_token_indices, device=input_ids.device))
-                content_indices = torch.where(is_skeleton_content_token)[0]
-                
-                # 4. 按顺序替换
-                # 将找到的第一个内容token替换为第一个query, 第二个替换为第二个...
-                for j, token_position in enumerate(content_indices):
-                    if j < len(query_token_ids):
-                        input_ids_modified[i, token_position] = query_token_ids[j]
-                    else:
-                        # 如果骨架token数量超过了query数量，发出警告或报错
-                        logger.warning_once("More skeleton tokens than available queries. Truncating.")
-                        break
-            
-            # 5. 使用修改后的input_ids进行后续计算
-            input_ids = input_ids_modified
-
-
-
-
-
+    ) -> Union[tuple, Qwen2_5_VLCausalLMOutputWithPast]:
         
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-
-
-
+        # MODIFIED BY GEMINI: 移除了在这里创建 skeleton_mask 的逻辑。
+        # 它将在 custom_qwen2_5_vltextmodel_forward 中被统一创建和处理。
         if self.skeleton_attention_type == 'base':
             batch_size, num_token = input_ids.shape
             skeleton_mask = torch.zeros_like(input_ids, dtype=torch.bool)
@@ -349,10 +308,9 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                 end_indices = (ids == self.config.skeleton_config['skeleton_end_token_id']).nonzero(as_tuple=True)[0]
                 # 一一配对
                 for start, end in zip(start_indices, end_indices):
-                    skeleton_mask[b, start:end+1] = True            
+                    skeleton_mask[b, start:end+1] = True
+            
             kwargs['skeleton_mask'] = skeleton_mask
-
-        
 
         
         outputs = self.model(
@@ -394,34 +352,35 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                 # 假设: 您的配置文件中包含了 query token 的 ID 列表
                 # 例如: self.config.skeleton_config['query_token_ids'] = [id1, id2, ...]
                 # 为确保代码健壮性，我们使用 getattr 安全地获取它
-                query_token_config = self.config.skeleton_config['skeleton_query_token_indices']
+                query_token_config = getattr(self.config.skeleton_config, 'query_token_ids', None)
                 
                 # 初始化两个损失项
                 loss_causal = None
                 loss_non_causal = None
 
                 # --- 1. 计算 Non-Causal Loss (用于骨架内容填充) ---
-                query_token_ids = torch.tensor(query_token_config, device=input_ids.device)
-                
-                # is_query_mask: [B, L], bool, 标记出 input_ids 中所有 query token 的位置
-                is_query_mask = torch.isin(input_ids, query_token_ids)
+                if query_token_config is not None:
+                    query_token_ids = torch.tensor(query_token_config, device=input_ids.device)
+                    
+                    # is_query_mask: [B, L], bool, 标记出 input_ids 中所有 query token 的位置
+                    is_query_mask = torch.isin(input_ids, query_token_ids)
 
-                if torch.any(is_query_mask):
-                    # 在 query 位置，labels 张量应该包含直接的、非移位的目标 (s_i)
-                    # 我们只在这些位置计算非因果损失
-                    
-                    # 从 logits 中提取 query 位置的预测
-                    query_logits = logits[is_query_mask]
-                    
-                    # 从 labels 中提取 query 位置的真实目标
-                    query_labels = labels[is_query_mask]
-                    
-                    # 直接计算交叉熵，没有任何 "shift"
-                    loss_non_causal = nn.functional.cross_entropy(
-                        query_logits.float(), 
-                        query_labels, 
-                        ignore_index=-100
-                    )
+                    if torch.any(is_query_mask):
+                        # 在 query 位置，labels 张量应该包含直接的、非移位的目标 (s_i)
+                        # 我们只在这些位置计算非因果损失
+                        
+                        # 从 logits 中提取 query 位置的预测
+                        query_logits = logits[is_query_mask]
+                        
+                        # 从 labels 中提取 query 位置的真实目标
+                        query_labels = labels[is_query_mask]
+                        
+                        # 直接计算交叉熵，没有任何 "shift"
+                        loss_non_causal = nn.functional.cross_entropy(
+                            query_logits.float(), 
+                            query_labels, 
+                            ignore_index=-100
+                        )
 
                 # --- 2. 计算 Causal Loss (用于结构生成) ---
                 # 为了计算因果损失，我们要屏蔽掉非因果的部分，避免它们干扰
@@ -571,13 +530,10 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
             attention_mask = model_kwargs["attention_mask"]
             if next_is_pose_block:
                 # 如果下一轮是姿态生成，拼接 num_pose_tokens 个值为 2 的信号
-
-                # num_pose_tokens = 80 # 您可以根据VQVAE的设置调整.
+                num_pose_tokens = 80 # 您可以根据VQVAE的设置调整.
                 # TODO
                 # num_pose_tokens 这个数字必须与您在config.json中定义的query_token_ids列表的长度严格相等。如果未来您调整了配置（比如改成40或100个查询token），但忘记修改这里的80，生成过程将会出错且难以调试。
                 # 修复建议: 让配置文件成为唯一的真实来源 (Single Source of Truth) 
-                num_pose_tokens = len(self.config.skeleton_config['skeleton_query_token_indices'])
-                
                 pose_mask_signal = torch.full(
                     (attention_mask.shape[0], num_pose_tokens), 
                     2, 
@@ -603,14 +559,9 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         streamer: Optional["BaseStreamer"] = None,
         **model_kwargs,
     ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
-
-        # <<< MODIFIED FOR AR-NAR >>>
-        # 步骤 1: 添加卫语句，如果不是 'nar' 模式，则直接调用并返回父类的标准方法
+        
         if self.skeleton_attention_type != 'nar':
-            # 为了确保与官方版本完全一致，我们直接调用 GenerationMixin 的 _sample 方法
-            # 而不是 Qwen 自身的 super()._sample()，因为 Qwen 可能没有重载它
-            return GenerationMixin._sample(
-                self,
+            return super()._sample(
                 input_ids,
                 logits_processor=logits_processor,
                 stopping_criteria=stopping_criteria,
@@ -620,13 +571,13 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
                 **model_kwargs,
             )
         
-        # --- 步骤 2: 标准初始化 (来自官方源码) ---
+        # --- 初始化 (与Hugging Face标准实现一致) ---
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
         pad_token_id = generation_config.pad_token_id
         eos_token_id = generation_config.eos_token_id
         if isinstance(eos_token_id, int):
-            eos_token_id = [eos_token_id]
+            eos_token_id = [eos_token_id] # 确保eos_token_id是列表，便于处理
         output_scores = generation_config.output_scores
         output_logits = generation_config.output_logits
         output_attentions = generation_config.output_attentions
@@ -640,136 +591,114 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         batch_size, cur_len = input_ids.shape[:2]
         this_peer_finished = False
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
-
-        # ================================ MODIFIED BY GEMINI: START ================================
-        #                      --- 步骤 3: 正确的初始缓存位置处理 (关键修复) ---
-        # 调用官方辅助函数来正确初始化 cache_position，这解决了第一次循环的错误。
-        model_kwargs = self._get_initial_cache_position(cur_len, input_ids.device, model_kwargs)
-        # ================================ MODIFIED BY GEMINI: END ==================================
-
-
-        # <<< MODIFIED FOR AR-NAR >>>
-        # 步骤 3: 添加我们自己的 AR-NAR 专用初始化
+        
+        # --- 混合AR-NAR逻辑的核心 ---
+        # 从配置中读取特殊token ID和参数
         skel_start_id = self.config.skeleton_config['skeleton_start_token_id']
         skel_end_id = self.config.skeleton_config['skeleton_end_token_id']
+        
+        # ================================ MODIFIED BY GEMINI: START =...
+        # 从配置中读取查询token ID和数量，不再硬编码
         query_token_ids = self.config.skeleton_config.get('skeleton_query_token_indices')
         if query_token_ids is None:
             raise ValueError("`query_token_ids` must be defined in `config.skeleton_config` for NAR generation.")
         num_pose_tokens = len(query_token_ids)
         query_tokens_tensor = torch.tensor(query_token_ids, device=input_ids.device, dtype=torch.long).unsqueeze(0)
+        # ================================ ...MODIFIED BY GEMINI: END =...
+
+        # 核心状态标志
+        next_is_pose_block = False
         
-        # 核心状态标志，现在通过 model_kwargs 传递，以兼容 torch.compile
-        model_kwargs["next_is_pose_block"] = False
-
-        # --- 步骤 4: 标准的预处理和编译逻辑 (来自官方源码) ---
-        if generation_config.prefill_chunk_size is not None:
-            # 这个逻辑块处理长输入的预填充优化
-            model_kwargs = self._prefill_chunking(input_ids, generation_config, **model_kwargs)
-            is_prefill = False
-        else:
-            is_prefill = True
-
-        # --- 步骤 5: 核心生成循环 (融合了AR-NAR逻辑) ---
-        while self._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):            
-            # <<< MODIFIED FOR AR-NAR >>>
-            # 检查是否正要进入NAR步骤
-            is_entering_nar_step = model_kwargs.pop("next_is_pose_block", False)
-            if is_entering_nar_step:
-                input_ids = torch.cat([input_ids, query_tokens_tensor], dim=-1)
-                attention_mask = model_kwargs.get("attention_mask")
-                pose_mask_signal = torch.full(
-                    (attention_mask.shape[0], num_pose_tokens), 2,
-                    device=attention_mask.device, dtype=attention_mask.dtype
-                )
-                model_kwargs['attention_mask'] = torch.cat([attention_mask, pose_mask_signal], dim=-1)
-                
-                past_key_values = model_kwargs.get("past_key_values")
-                if past_key_values is not None:
-                    past_length = past_key_values[0][0].shape[2]
-                    model_kwargs['cache_position'] = torch.arange(
-                        past_length, past_length + num_pose_tokens, device=input_ids.device
-                    )
-            
+        # 获取标准的 while 循环 (这是从您贴出的 _sample 代码中复制的)
+        iter_cnt = 0
+        while True:
+            # 1. 准备模型输入
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
-            # 前向传播
+            # 2. 前向传播
             outputs = self(**model_inputs, return_dict=True)
 
-            # 更新KV缓存等
-            model_kwargs = self._update_model_kwargs_for_generation(
-                outputs, model_kwargs, is_encoder_decoder=self.config.is_encoder_decoder
-            )
-
-            # <<< MODIFIED FOR AR-NAR >>>
-            # 步骤 6: 根据AR或NAR模式，条件性地提取logits
-            if is_entering_nar_step:
+            # 3. 根据状态标志，选择不同的 logits
+            if next_is_pose_block:
                 # --- NAR 模式 ---
+                # 提取与查询token对应的logits。这里假设查询token在序列末尾
+                # TODO
+                # 这行代码在您当前的实现中是有效且正确的，因为它假设了查询/占位符块总是在序列的末尾。
+                # 这只是一个提醒，如果未来您的生成逻辑变得更复杂（例如在姿态块后继续生成其他文本），这里可能需要调整为更稳健的、基于attention_mask == 2信号的索引方式来精确定位logits。目前无需修改。
+                # 答案在于生成循环 (_sample方法) 的执行时序。这行代码的正确性，依赖于在执行非自回归（NAR）前向传播的那一特定瞬间，input_ids 张量的状态。
+                # [:, -num_pose_tokens:, :] 之所以正确，并非因为查询块在最终序列的末尾，而是因为在执行非自回归（NAR）前向传播的那一瞬间，您的代码逻辑确保了查询占位符块被临时地放置在了输入序列的末尾。
                 next_token_logits = outputs.logits[:, -num_pose_tokens:, :]
+                next_is_pose_block = False # 重置状态
             else:
                 # --- AR 模式 ---
                 next_token_logits = outputs.logits[:, -1, :]
-            
-            # (后续的 logits 处理和解码逻辑与您之前的版本相同)
-            if next_token_logits.ndim == 3: # NAR
+
+            # 4. Logits处理和解码
+            # 确保 next_token_logits 是 2D 的
+            if next_token_logits.ndim == 3 and next_token_logits.shape[1] > 1:
+                # 这是NAR模式，需要处理整个块
+                # LogitsProcessor通常用于单个token，这里我们直接处理
                 next_token_scores = next_token_logits
-            else: # AR
-                next_token_scores = logits_processor(input_ids, next_token_logits)
-
-            # --- 步骤 7: 标准的Token选择逻辑 (来自官方源码，但我们处理多token情况) ---
-            if do_sample:
-                probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
-                probs = probs.view(input_ids.shape[0], -1, probs.shape[-1])
-                next_tokens = torch.multinomial(probs.view(-1, probs.shape[-1]), num_samples=1).view(probs.shape[0], probs.shape[1])
             else:
-                # 对于NAR，我们通常也使用采样，但这里为了完整性保留argmax
-                next_tokens = torch.argmax(next_token_scores, dim=-1)
-
-            # <<< MODIFIED FOR AR-NAR >>>
-            # 步骤 8: 根据AR或NAR模式，条件性地更新 input_ids 和状态
-            next_is_pose_block_for_next_iter = False
-            assert next_tokens.numel() == 1
-            if next_tokens.shape[1] == 1 and next_tokens.item() == skel_start_id:
-                next_is_pose_block_for_next_iter = True
-                input_ids = torch.cat([input_ids, next_tokens], dim=-1)
+                # 这是AR模式
+                if next_token_logits.ndim == 3 and next_token_logits.shape[1] == 1:
+                    next_token_logits = next_token_logits.squeeze(1)
+                next_token_scores = logits_processor(input_ids, next_token_logits)
             
-            elif next_tokens.shape[1] == num_pose_tokens:
-                input_ids[:, -num_pose_tokens:] = next_tokens
+            # 采样/Greedy
+            probs = torch.nn.functional.softmax(next_token_scores, dim=-1)
+            # .view(input_ids.shape[0], -1, probs.shape[-1]) 确保形状正确
+            probs = probs.view(input_ids.shape[0], -1, probs.shape[-1])
+            predicted_tokens = torch.multinomial(probs.view(-1, probs.shape[-1]), num_samples=1).view(probs.shape[0], probs.shape[1])
+
+
+            # --- 更新序列和状态 ---
+            # 5. 检查是否触发了 NAR 模式
+            if predicted_tokens.shape[1] == 1 and predicted_tokens.item() == skel_start_id:
+                next_is_pose_block = True
+                # 将 <skel_start> token 加到序列中
+                input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
+
+                # ================================ MODIFIED BY GEMINI: START =...
+                # 为下一轮准备合法的查询token，不再使用-1
+                input_ids = torch.cat([input_ids, query_tokens_tensor], dim=-1)
+                # ================================ ...MODIFIED BY GEMINI: END =...
+            
+            elif predicted_tokens.shape[1] == num_pose_tokens:
+                # 如果刚刚生成了一个姿态块 (NAR)
+                # 用真实的预测结果替换掉之前的查询占位符
+                input_ids[:, -num_pose_tokens:] = predicted_tokens
+                # 自动拼接一个结束符
                 end_token = torch.full((input_ids.shape[0], 1), skel_end_id, device=input_ids.device, dtype=torch.long)
                 input_ids = torch.cat([input_ids, end_token], dim=-1)
             else:
-                input_ids = torch.cat([input_ids, next_tokens], dim=-1)
-            
-            # 将下一轮的状态标志存入 model_kwargs
-            model_kwargs["next_is_pose_block"] = next_is_pose_block_for_next_iter
-            
-            if streamer is not None:
-                streamer.put(next_tokens.cpu())
+                # 如果是普通AR步骤
+                input_ids = torch.cat([input_ids, predicted_tokens], dim=-1)
 
-            # --- 步骤 9: 标准的停止条件检查 (来自官方源码, 已融合我们的修复) ---
-            # 只在AR步骤检查EOS
-            if next_tokens.shape[1] == 1:
-                if next_tokens[0].item() in eos_token_id:
-                    unfinished_sequences.fill_(0)
-            
-            unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
-            this_peer_finished = unfinished_sequences.max() == 0
-            
-            if this_peer_finished and not synced_gpus:
-                break
-        
-        # --- 步骤 10: 标准的返回逻辑 (来自官方源码) ---
-        if streamer is not None:
-            streamer.end()
-
-        if return_dict_in_generate:
-            return GenerateDecoderOnlyOutput(
-                sequences=input_ids,
-                scores=scores,
-                logits=raw_logits,
-                attentions=None, # 您可以按需填充
-                hidden_states=None,
-                past_key_values=model_kwargs.get("past_key_values"),
+            # 6. 更新KV缓存和attention_mask
+            model_kwargs = self._update_model_kwargs_for_generation(
+                outputs, model_kwargs, next_is_pose_block=next_is_pose_block
             )
+            
+            # ================================ MODIFIED BY GEMINI: START =...
+            # 7. 检查停止条件 (已修复)
+            # 只在AR步骤（生成单个token时）检查是否满足停止条件
+            if predicted_tokens.shape[1] == 1:
+                # `item()` a `tensor` with one element is deprecated
+                if predicted_tokens[0].item() in eos_token_id:
+                        unfinished_sequences.fill_(0)
+            
+            if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
+                break
+            # ================================ ...MODIFIED BY GEMINI: END =...
+
+            iter_cnt += 1
+
+
+        # 返回与原始 _sample 方法兼容的输出
+        if return_dict_in_generate:
+            # (这里可以根据需要填充完整的输出字典)
+            return GenerateDecoderOnlyOutput(sequences=input_ids, scores=scores, logits=raw_logits)
         else:
             return input_ids
 
@@ -1002,67 +931,65 @@ def custom_qwen2_5_vltextmodel_forward(
 
 
 
-    base_causal_mask = causal_mask_mapping.get("full_attention")
-    if base_causal_mask is not None:
 
 
 
 
-        if self.skeleton_attention_type == 'base':
-            skeleton_mask = kwargs.pop('skeleton_mask')
-            skeleton_mask = skeleton_mask.int()
-            skeleton_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, skeleton_mask)
-            skeleton_attention_mask = skeleton_attention_mask.unsqueeze(1).bool()
+    if self.skeleton_attention_type == 'base':
+        skeleton_mask = kwargs.pop('skeleton_mask')
+        skeleton_mask = skeleton_mask.int()
+        skeleton_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, skeleton_mask)
+        skeleton_attention_mask = skeleton_attention_mask.unsqueeze(1).bool()
 
-            video_mask_unpad = kwargs.pop('video_mask_unpad')
-            skeleton_video_cross_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, video_mask_unpad)
-            skeleton_video_cross_attention_mask = skeleton_video_cross_attention_mask.unsqueeze(1).bool()
+        video_mask_unpad = kwargs.pop('video_mask_unpad')
+        skeleton_video_cross_attention_mask = torch.einsum('bq,bk->bqk', skeleton_mask, video_mask_unpad)
+        skeleton_video_cross_attention_mask = skeleton_video_cross_attention_mask.unsqueeze(1).bool()
 
-            causal_mask_mapping['full_attention'] = causal_mask_mapping['full_attention'] | skeleton_attention_mask | skeleton_video_cross_attention_mask
-
-
-            if not hasattr(self, 'skeleton_attention_applied_flag'):
-                self.skeleton_attention_applied_flag = True
-                print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
-
-        elif self.skeleton_attention_type == 'base_v2':
-            # =================================================================================================
-            # ================================ MODIFIED BY GEMINI: START ======================================
-            # =================================================================================================
-            # 使用 hasattr 检查，以确保在没有设置此属性的模型上不会出错
-            # 调用我们创建的辅助函数来生成完整的、正确的遮罩
-            final_mask = create_custom_pose_attention_mask_baseV2(
-                input_ids=input_ids,
-                base_causal_mask=causal_mask_mapping['full_attention'],
-                config=self.config,       # self.config 是从主模型传递过来的完整配置
-                is_training=self.training # self.training 可以正确判断当前是训练还是推理
-            )
-            causal_mask_mapping['full_attention'] = final_mask
-            # =================================================================================================
-            # ================================= MODIFIED BY GEMINI: END =======================================
-            # =================================================================================================
-            if not hasattr(self, 'skeleton_attention_applied_flag'):
-                self.skeleton_attention_applied_flag = True
-                print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
+        causal_mask_mapping['full_attention'] = causal_mask_mapping['full_attention'] | skeleton_attention_mask | skeleton_video_cross_attention_mask
 
 
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
 
-        elif self.skeleton_attention_type == 'nar':
-            # 它接收1D的"信号"mask (mask_kwargs['attention_mask'])
-            # 和基础的4D因果mask (causal_mask_mapping['full_attention'])
-            final_mask = create_custom_pose_attention_mask_nar(
-                input_ids=input_ids,
-                attention_mask=mask_kwargs['attention_mask'], # <--- 读取信号
-                base_causal_mask=causal_mask_mapping['full_attention'],
-                config=self.config,
-                is_training=self.training
-            )
-            
-            # 3. 它输出一个构建好的、可供执行的4D mask
-            causal_mask_mapping['full_attention'] = final_mask
-            if not hasattr(self, 'skeleton_attention_applied_flag'):
-                self.skeleton_attention_applied_flag = True
-                print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
+    elif self.skeleton_attention_type == 'base_v2':
+        # =================================================================================================
+        # ================================ MODIFIED BY GEMINI: START ======================================
+        # =================================================================================================
+        # 使用 hasattr 检查，以确保在没有设置此属性的模型上不会出错
+        # 调用我们创建的辅助函数来生成完整的、正确的遮罩
+        final_mask = create_custom_pose_attention_mask_baseV2(
+            input_ids=input_ids,
+            base_causal_mask=causal_mask_mapping['full_attention'],
+            config=self.config,       # self.config 是从主模型传递过来的完整配置
+            is_training=self.training # self.training 可以正确判断当前是训练还是推理
+        )
+        causal_mask_mapping['full_attention'] = final_mask
+        # =================================================================================================
+        # ================================= MODIFIED BY GEMINI: END =======================================
+        # =================================================================================================
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
+
+
+
+    elif self.skeleton_attention_type == 'nar':
+        # 它接收1D的"信号"mask (mask_kwargs['attention_mask'])
+        # 和基础的4D因果mask (causal_mask_mapping['full_attention'])
+        final_mask = create_custom_pose_attention_mask_nar(
+            input_ids=input_ids,
+            attention_mask=mask_kwargs['attention_mask'], # <--- 读取信号
+            base_causal_mask=causal_mask_mapping['full_attention'],
+            config=self.config,
+            is_training=self.training
+        )
+        
+        # 3. 它输出一个构建好的、可供执行的4D mask
+        causal_mask_mapping['full_attention'] = final_mask
+        if not hasattr(self, 'skeleton_attention_applied_flag'):
+            self.skeleton_attention_applied_flag = True
+            print('\n'.join([f'skeleton_attention <{self.skeleton_attention_type}> successfully applied' for _ in range(99)]))
 
 
 

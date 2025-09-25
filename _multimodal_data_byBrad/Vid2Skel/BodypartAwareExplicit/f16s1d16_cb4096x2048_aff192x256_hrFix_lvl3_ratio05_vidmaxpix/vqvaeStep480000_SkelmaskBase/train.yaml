@@ -1,0 +1,77 @@
+dataset: Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_step480000_train
+output_dir: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/vqvaeStep480000_SkelmaskBase/train
+get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
+
+
+skeleton_attention_type: base
+
+
+resize_vocab: true
+
+# vqvae_ckpt: /group/40174/peimingli/bradley//LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000  # only used in infer
+# codebook_size: 4096
+vqvae_config: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/vqvaeStep480000_SkelmaskBase/vqvae_config.py
+
+num_train_epochs: 10
+
+resume_from_checkpoint: null
+
+# add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
+add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+
+
+
+### model
+model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
+image_max_pixels: 262144
+video_max_pixels: 49168   # 192*256+16. default: 16384=128*128
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 8
+lora_target: all
+
+### dataset
+template: qwen2_vl
+cutoff_len: 2048
+overwrite_cache: true
+
+
+
+max_samples: 999999
+low_cpu_mem_usage: False
+preprocessing_batch_size: 16
+preprocessing_num_workers: 128
+dataloader_num_workers: 32
+# preprocessing_num_workers: 1    # 使用 16 在 src/llamafactory/data/loader.py 中的 dataset.map 这一步会报错
+# dataloader_num_workers: 1
+
+### output
+logging_steps: 10
+save_steps: 1000
+plot_loss: true
+overwrite_output_dir: true
+save_only_model: false
+report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+
+### train
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 8
+learning_rate: 1.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+ddp_timeout: 180000000
+
+### eval
+# val_size: 0.1
+# per_device_eval_batch_size: 1
+# eval_strategy: steps
+# eval_steps: 500
+
+
+

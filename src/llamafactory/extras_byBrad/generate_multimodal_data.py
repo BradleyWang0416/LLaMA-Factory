@@ -18,17 +18,17 @@ from collections import defaultdict
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE, Encoder, VectorQuantizer, Decoder
 
 import sys
-sys.path.append("/home/wxs/ContextAwarePoseFormer_Private/H36M-Toolbox/")
+sys.path.append("../ContextAwarePoseFormer_Private/H36M-Toolbox/")
 from multimodal_h36m_dataset_byBradley import Multimodal_Mocap_Dataset
-sys.path.remove("/home/wxs/ContextAwarePoseFormer_Private/H36M-Toolbox/")
-sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
-from lib.utils.viz_skel_seq import viz_skel_seq_anim
-sys.path.remove('/home/wxs/Skeleton-in-Context-tpami/')
-sys.path.append('/home/wxs/MTVCrafter/')
+sys.path.remove("../ContextAwarePoseFormer_Private/H36M-Toolbox/")
+# sys.path.append('../Skeleton-in-Context-tpami/')
+# from lib.utils.viz_skel_seq import viz_skel_seq_anim
+# sys.path.remove('../Skeleton-in-Context-tpami/')
+sys.path.append('../MTVCrafter/')
 from config.vision_backbone import config as vision_config
 from config.vqvae import vqvae_config
 from models import HYBRID_VQVAE
-sys.path.remove('/home/wxs/MTVCrafter/')
+sys.path.remove('../MTVCrafter/')
 
 
 PROMPT_TEMPLATES = {

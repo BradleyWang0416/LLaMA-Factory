@@ -1,5 +1,5 @@
-# mode=debug
-mode=infer
+mode=debug
+# mode=infer
 
 
 
@@ -8,7 +8,7 @@ get_item_list="['image_sources','slice_id','factor_2_5d','video_rgb']"
 prompt_template=BodypartAwareExplicit
 task=Vid2Skel
 data_split=train
-resume_path=/home/wxs/MTVCrafter/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_60_step_340000
+resume_path=../MTVCrafter/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_60_step_340000
 
 BATCH_SIZE=32
 

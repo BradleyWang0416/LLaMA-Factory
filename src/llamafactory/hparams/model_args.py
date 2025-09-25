@@ -217,6 +217,14 @@ class BaseModelArguments:
         metadata={"help": "需要在 src/llamafactory/model/patcher.py::patch_config 加入到 init_kwargs 中"},
     )
     #########################################################################################
+    # ADDED BY BRADLEY 250922 ####################################################################
+    num_skeleton_query_tokens: int = field(
+        default=None,
+        metadata={
+            "help": " "
+        },
+    )
+    #########################################################################################
 
     def __post_init__(self):
         if self.model_name_or_path is None:
@@ -250,7 +258,10 @@ class BaseModelArguments:
                 vision_config=vqvae_config_module.vision_config,
             )
         ##############################################################################################
-        
+        # ADDED BY BRADLEY 250922 ####################################################################
+        if self.skeleton_attention_type == 'nar':
+            assert self.num_skeleton_query_tokens is not None and self.num_skeleton_query_tokens > 0, f"`num_skeleton_query_tokens` must be a positive integer to use NAR skeleton attention."
+        ##############################################################################################
 
 
 @dataclass
