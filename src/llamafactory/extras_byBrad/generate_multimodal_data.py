@@ -17,6 +17,9 @@ from collections import defaultdict
 
 from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE, Encoder, VectorQuantizer, Decoder
 
+assert 'LLaMA-Factory' in osp.abspath(__file__)
+HOME_ROOT_PATH = osp.abspath(__file__).split('LLaMA-Factory')[0]
+
 import sys
 sys.path.append("../ContextAwarePoseFormer_Private/H36M-Toolbox/")
 from multimodal_h36m_dataset_byBradley import Multimodal_Mocap_Dataset
@@ -169,7 +172,7 @@ def get_args():
     parser.add_argument('--data_split', type=str, required=True)
 
     parser.add_argument('--resume_pth', type=str, required=True)
-    parser.add_argument('--save_root', type=str, default='/home/wxs/LLaMA-Factory/data/_multimodal_data_byBrad/')
+    parser.add_argument('--save_root', type=str, default=osp.join(HOME_ROOT_PATH, 'LLaMA-Factory/data/_multimodal_data_byBrad/'))
     parser.add_argument('--save_dir', type=str, required=True)
     parser.add_argument('--batch_size', type=int, default=64)
 
@@ -198,6 +201,9 @@ def get_args():
     parser.add_argument('--hrnet_output_level', type=int, default=None, help="int or list. 0,1,2,3 分别对应输出 [B,32,H/4,W/4], [B,64,H/8,W/8], [B,128,H/16,W/16], [B,256,H/32,W/32] 的特征")
     parser.add_argument('--vision_guidance_ratio', type=float, default=None)
 
+    parser.add_argument('--downsample_time', type=str, default=None)
+    parser.add_argument('--frame_upsample_rate', type=str, default=None)
+
     args = parser.parse_args()
 
     if isinstance(args.return_extra, str):
@@ -216,6 +222,15 @@ def get_args():
     vqvae_config.vq.nb_code = args.nb_code
     vqvae_config.vq.code_dim = args.codebook_dim
     vqvae_config.vq.is_train = False
+
+    if isinstance(args.downsample_time, str):
+        args.downsample_time = ast.literal_eval(args.downsample_time)
+    if isinstance(args.frame_upsample_rate, str):
+        args.frame_upsample_rate = ast.literal_eval(args.frame_upsample_rate)
+    if args.downsample_time is not None:
+        vqvae_config.encoder.downsample_time = args.downsample_time
+    if args.frame_upsample_rate is not None:
+        vqvae_config.decoder.frame_upsample_rate = args.frame_upsample_rate
 
     if args.hrnet_output_level is not None:
         vision_config.model.hybrid.hrnet_output_level = args.hrnet_output_level
@@ -251,9 +266,13 @@ if __name__ == "__main__":
 
     get_item_list=args.get_item_list
     if args.joint_data_type not in get_item_list:
-        get_item_list = [args.joint_data_type, 
-                         args.joint_data_type.replace('normed', 'scale'), 
-                         args.joint_data_type.replace('normed', 'transl')] + get_item_list
+        try:
+            get_item_list = [args.joint_data_type, 
+                            args.joint_data_type.replace('normed', 'scale'), 
+                            args.joint_data_type.replace('normed', 'transl')] + get_item_list
+        except Exception as e:
+            get_item_list = [args.joint_data_type] + get_item_list
+            
     dataset = Multimodal_Mocap_Dataset(num_frames=args.num_frames, sample_stride=args.sample_stride, data_stride=args.data_stride,
                                                 data_mode=args.data_mode,
                                                 designated_split=args.data_split,
@@ -300,7 +319,7 @@ if __name__ == "__main__":
 
         joint3d_video = batch[args.joint_data_type].cuda()
         if args.vision_guidance_ratio > 0:
-            video_rgb = torch.stack(batch['video_rgb']).cuda()  # [B,T,H,W,3]
+            video_rgb = batch['video_rgb'].cuda()  # [B,T,H,W,3]
         else:
             video_rgb = None
 
@@ -315,11 +334,13 @@ if __name__ == "__main__":
         SOURCE_DATA_DICT['skeleton_quant_shape'].append(quant_shape)
         SOURCE_DATA_DICT['norm_scale'].append(batch[args.joint_data_type.replace('normed', 'scale')].cpu().numpy())
         SOURCE_DATA_DICT['norm_transl'].append(batch[args.joint_data_type.replace('normed', 'transl')].cpu().numpy())
-        SOURCE_DATA_DICT['slice_id'].append(torch.stack(batch['slice_id']).cpu().numpy())
+        SOURCE_DATA_DICT['slice_id'].append(batch['slice_id'].cpu().numpy())
         if task == 'Vid2Skel':
             SOURCE_DATA_DICT['image_sources'].append(batch['image_sources'])
         if args.data_split == 'test':
-            SOURCE_DATA_DICT['factor_2_5d'].append(torch.stack(batch['factor_2_5d']).cpu().numpy())
+            SOURCE_DATA_DICT['factor_2_5d'].append(batch['factor_2_5d'].cpu().numpy())
+        if 'affine_trans_inv' in get_item_list:
+            SOURCE_DATA_DICT['affine_trans_inv'].append(batch['affine_trans_inv'].cpu().numpy())
 
         if 'debugpy' in sys.modules:
             if len(SOURCE_DATA_DICT['skeleton_code']) >= 32:
