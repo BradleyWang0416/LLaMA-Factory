@@ -353,6 +353,7 @@ class MMPluginMixin:
         CODEBOOK_INDICES = []
         GRID_SHAPES = []
         SOURCE_SLICE_ID = []
+        JOINT2D_CPN = []
         for skeleton_indices_path in skeletons:
             """
             if isinstance(skeleton, str):
@@ -397,11 +398,40 @@ class MMPluginMixin:
                 source_slice_id = torch.from_numpy(source_slice_id)
                 SOURCE_SLICE_ID.append(source_slice_id)
 
+            joint2d_cpn_path = skeleton_indices_path.replace('skeleton_code', 'joint2d_cpn')
+            if os.path.exists(joint2d_cpn_path):
+                joint2d_cpn = np.load(joint2d_cpn_path)  # [3], [C, T_quant, J_quant]
+                joint2d_cpn = torch.from_numpy(joint2d_cpn)
+                JOINT2D_CPN.append(joint2d_cpn)
+
+            norm_offset_path = skeleton_indices_path.replace('skeleton_code', 'norm_transl')
+            if os.path.exists(norm_offset_path):
+                norm_offset = np.load(norm_offset_path)
+                norm_offset = torch.from_numpy(norm_offset)
+
+            norm_scale_path = skeleton_indices_path.replace('skeleton_code', 'norm_scale')
+            if os.path.exists(norm_scale_path):
+                norm_scale = np.load(norm_scale_path)
+                norm_scale = torch.from_numpy(norm_scale)
+
+            affine_trans_path = skeleton_indices_path.replace('skeleton_code', 'affine_trans')
+            if os.path.exists(affine_trans_path):
+                affine_trans = np.load(affine_trans_path)
+                affine_trans = torch.from_numpy(affine_trans)
+
+            if os.path.exists(joint2d_cpn_path) and os.path.exists(norm_offset_path) and os.path.exists(norm_scale_path) and os.path.exists(affine_trans_path):
+                joint2d_cpn_xy1 = torch.cat([joint2d_cpn, joint2d_cpn.new_ones(joint2d_cpn[..., :1].shape)], dim=-1)    # [T,17,3]
+                joint2d_cpn_affined = torch.einsum('tij,tkj->tik', joint2d_cpn_xy1, affine_trans)
+                joint2d_cpn_affined_normed = joint2d_cpn_affined / norm_scale[..., None, :2] - norm_offset[..., None, :2]
+                
+                
+
         return {
             "skeleton_indices": CODEBOOK_INDICES,  # 相当于 image 模态对应的 pixel_values
             "skeleton_poses": POSES,
             "skeleton_grid_thw": torch.tensor(GRID_SHAPES, dtype=torch.long),
             "source_slice_id": SOURCE_SLICE_ID,
+            "JOINT2D_CPN": joint2d_cpn,
             }
     #########################################################################################
 

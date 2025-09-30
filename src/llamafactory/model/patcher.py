@@ -79,7 +79,7 @@ def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArgument
             logger.warning_rank0("New codebook tokens have been added, changed `resize_vocab` to True.")
     ##############################################################################################################
     # ADDED BY BRADLEY 250917 ####################################################################################
-    else:
+    elif model_args.vqvae_config is not None:
         codebook_size = model_args.vqvae_config.vqvae_config.vq.nb_code
         new_codebook_tokens = [SKELETON_TOKEN_BASE.format(i) for i in range(codebook_size)]
         # new_codebook_tokens = [f"<skel_{i}>" for i in range(codebook_size)]
@@ -198,7 +198,7 @@ def patch_config(
     if model_args.vqvae_ckpt is not None:
         print('\n'.join(['Warning!!! `model_args.vqvae_ckpt` is deprecated, please use `vqvae_config` instead.' for _ in range(99)]))
         init_kwargs['vqvae_ckpt'] = model_args.vqvae_ckpt
-    else:
+    elif model_args.vqvae_config is not None:
         init_kwargs['vqvae_config'] = model_args.vqvae_config
     init_kwargs['use_mpjpe_loss'] = model_args.use_mpjpe_loss
     init_kwargs['skeleton_attention_type'] = model_args.skeleton_attention_type

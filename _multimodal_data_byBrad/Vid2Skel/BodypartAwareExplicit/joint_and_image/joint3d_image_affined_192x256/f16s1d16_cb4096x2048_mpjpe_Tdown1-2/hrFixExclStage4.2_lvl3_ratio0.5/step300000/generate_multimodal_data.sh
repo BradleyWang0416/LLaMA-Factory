@@ -1,5 +1,5 @@
-mode=debug
-# mode=infer
+# mode=debug
+mode=infer
 
 downsample_time="[1,2]"
 frame_upsample_rate="[2.0,1.0]"
@@ -11,7 +11,8 @@ get_item_list="['joint3d_image','joint3d_image_normed','factor_2_5d','joint3d_im
 prompt_template=BodypartAwareExplicit
 task=Vid2Skel
 data_split=train
-resume_path=../MTVCrafter_weights/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_60_step_340000
+# resume_path=../MTVCrafter_weights/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_185_step_300000
+resume_path=../MTVCrafter/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_185_step_300000
 
 BATCH_SIZE=32
 
@@ -26,14 +27,17 @@ processed_image_shape="[192,256]"
 HRNET_OUTPUT_LEVEL=3    # int or list. 0,1,2,3 分别对应输出 [B,32,H/4,W/4], [B,64,H/8,W/8], [B,128,H/16,W/16], [B,256,H/32,W/32] 的特征
 VISION_GUIDANCE_RATIO=0.5
 
-save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}_aff192x256
+save_dir=joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_300000
 # save_dir=f${NUM_FRAME}s${SAMPLE_STRIDE}d${DATA_STRIDE}_cb${NUM_CODE}x${CODE_DIM}
 
 
 
+# load_data_file="../Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final_wImgPath_wJ3dCam_wJ2dCpn.pkl"
+# load_image_source_file=../Human3.6M_for_MotionBERT/images_source.pkl
+# load_bbox_file=../Human3.6M_for_MotionBERT/bboxes_xyxy.pkl
 load_data_file="/data1/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final_wImgPath_wJ3dCam_wJ2dCpn.pkl"
-load_image_source_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl
-load_bbox_file=/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/bboxes_xyxy.pkl
+load_image_source_file="/data1/wxs/DATASETS/Human3.6M_for_MotionBERT/images_source.pkl"
+load_bbox_file="/data1/wxs/DATASETS/Human3.6M_for_MotionBERT/bboxes_xyxy.pkl"
 load_text_source_file=''
 return_extra="[['image']]"
 # data preprocessing config
@@ -52,7 +56,7 @@ fi
 
 
 
-CUDA_VISIBLE_DEVICES=2 \
+CUDA_VISIBLE_DEVICES=3 \
     python \
     $DEBUG_ARGS \
     src/llamafactory/extras_byBrad/generate_multimodal_data.py \

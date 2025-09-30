@@ -341,6 +341,10 @@ if __name__ == "__main__":
             SOURCE_DATA_DICT['factor_2_5d'].append(batch['factor_2_5d'].cpu().numpy())
         if 'affine_trans_inv' in get_item_list:
             SOURCE_DATA_DICT['affine_trans_inv'].append(batch['affine_trans_inv'].cpu().numpy())
+        if 'affine_trans' in get_item_list:
+            SOURCE_DATA_DICT['affine_trans'].append(batch['affine_trans'].cpu().numpy())
+        if 'joint2d_cpn' in get_item_list:
+            SOURCE_DATA_DICT['joint2d_cpn'].append(batch['joint2d_cpn'].cpu().numpy())
 
         if 'debugpy' in sys.modules:
             if len(SOURCE_DATA_DICT['skeleton_code']) >= 32:

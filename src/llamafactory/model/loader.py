@@ -277,35 +277,37 @@ def load_model(
         skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(model_args.codebook_size)])
     #########################################################################################
     # ADDED BY BRADLEY 250917 ###############################################################
-    else:
+    elif model_args.vqvae_config is not None:
         codebook_size = model_args.vqvae_config.vqvae_config.vq.nb_code
         skeleton_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_TOKEN_BASE.format(i) for i in range(codebook_size)])
     #########################################################################################
-    skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
-    skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
+    
+    if model_args.add_special_tokens is not None and "<|skel_start|>" in model_args.add_special_tokens:
+        skeleton_start_token_id = tokenizer.convert_tokens_to_ids("<|skel_start|>")
+        skeleton_end_token_id = tokenizer.convert_tokens_to_ids("<|skel_end|>")
 
 
-    skeleton_config = {
-        'skeleton_token_indices': skeleton_token_indices,
-        'skeleton_start_token_id': skeleton_start_token_id,
-        'skeleton_end_token_id': skeleton_end_token_id,
-        'skeleton_formatting_token_ids': tokenizer.convert_tokens_to_ids(model_args.add_special_tokens),    # e.g., ['<|skel_start|>', '<|skel_end|>', '<|frame_break|>', '<torso>', '</torso>', '<left_arm>', '</left_arm>', '<right_arm>', '</right_arm>', '<left_leg>', '</left_leg>', '<right_leg>', '</right_leg>']
-        'skeleton_formatting_func': model_args.get_skel_str_func,
-    }
+        skeleton_config = {
+            'skeleton_token_indices': skeleton_token_indices,
+            'skeleton_start_token_id': skeleton_start_token_id,
+            'skeleton_end_token_id': skeleton_end_token_id,
+            'skeleton_formatting_token_ids': tokenizer.convert_tokens_to_ids(model_args.add_special_tokens),    # e.g., ['<|skel_start|>', '<|skel_end|>', '<|frame_break|>', '<torso>', '</torso>', '<left_arm>', '</left_arm>', '<right_arm>', '</right_arm>', '<left_leg>', '</left_leg>', '<right_leg>', '</right_leg>']
+            'skeleton_formatting_func': model_args.get_skel_str_func,
+        }
 
 
-    # ADDED BY BRADLEY 250922 ###############################################################
-    if model_args.skeleton_attention_type == 'nar':
-        assert model_args.num_skeleton_query_tokens is not None and model_args.num_skeleton_query_tokens > 0, f"`num_skeleton_query_tokens` must be a positive integer to use NAR skeleton attention."
-        num_skeleton_query_tokens = model_args.num_skeleton_query_tokens
-        skeleton_query_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_QUERY_BASE.format(i) for i in range(num_skeleton_query_tokens)])
+        # ADDED BY BRADLEY 250922 ###############################################################
+        if model_args.skeleton_attention_type == 'nar':
+            assert model_args.num_skeleton_query_tokens is not None and model_args.num_skeleton_query_tokens > 0, f"`num_skeleton_query_tokens` must be a positive integer to use NAR skeleton attention."
+            num_skeleton_query_tokens = model_args.num_skeleton_query_tokens
+            skeleton_query_token_indices = tokenizer.convert_tokens_to_ids([SKELETON_QUERY_BASE.format(i) for i in range(num_skeleton_query_tokens)])
 
-        skeleton_config['skeleton_query_token_indices'] = skeleton_query_token_indices
-    #########################################################################################
+            skeleton_config['skeleton_query_token_indices'] = skeleton_query_token_indices
+        #########################################################################################
 
 
-    setattr(model.config, 'skeleton_config', skeleton_config)
-    setattr(model.language_model.config, 'skeleton_config', skeleton_config)
+        setattr(model.config, 'skeleton_config', skeleton_config)
+        setattr(model.language_model.config, 'skeleton_config', skeleton_config)
 
 
 

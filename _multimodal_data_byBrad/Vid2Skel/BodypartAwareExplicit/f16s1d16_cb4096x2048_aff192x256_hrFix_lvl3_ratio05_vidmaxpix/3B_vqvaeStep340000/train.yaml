@@ -1,11 +1,11 @@
 dataset: Vid2Skel_BodypartAwareExplicit_f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_train
-output_dir: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/train
+output_dir: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000/train
 
 # get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
 get_skel_str_func: get_skeleton_token_str_woBodyPart_woFramebreak       # used in train and infer
 
-skeleton_attention_type: nar
-num_skeleton_query_tokens: 68 # 4*17
+# skeleton_attention_type: nar
+# num_skeleton_query_tokens: 68 # 4*17
 
 # video_max_pixels: 49168   # 192*256+16. default: 16384=128*128
 video_max_pixels: 16384   # 192*256+16. default: 16384=128*128
@@ -14,11 +14,10 @@ resize_vocab: true
 
 # vqvae_ckpt: /group/40174/peimingli/bradley//LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000  # only used in infer
 # codebook_size: 4096
-vqvae_config: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/vqvae_config.py
+vqvae_config: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000/vqvae_config.py
 
 num_train_epochs: 10
 
-# resume_from_checkpoint: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/train/checkpoint-1000
 resume_from_checkpoint: null
 
 # add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>

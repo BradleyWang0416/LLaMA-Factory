@@ -87,6 +87,35 @@ def parse_skeleton_token_str_woBodyPart(skeleton_token_str):
     return skeleton_indices
 
 
+def get_skeleton_token_str_wTextualBodyPart_SplitByFrame(skeleton_indices):
+    frame_strings = []
+    for frame_id, frame_indices in enumerate(skeleton_indices): # 遍历每一帧
+        part_strings = []
+        # 3. 按照预定义的身体部位顺序进行遍历
+        for part_name in BODY_PART_ORDER:
+            start_token, _ = BODY_PART_TOKENS[part_name]
+            start_token = start_token.replace('<', '').replace('>', ': ')  # 将 <torso> 替换为 torso:
+            end_token = '. ' if part_name != BODY_PART_ORDER[-1] else '.'
+
+            joint_indices_for_part = JOINT_GROUP_MAP[part_name]
+            
+            # 提取该部位对应的关节词元
+            joint_tokens = [SKELETON_TOKEN_BASE.format(frame_indices[j]) for j in joint_indices_for_part]
+            
+            # 构建部位字符串: <torso><skel_1><skel_2></torso>
+            part_strings.append(start_token + "".join(joint_tokens) + end_token)
+        
+        # 将一帧内所有部位的字符串连接起来
+        frame_string = f"Frame {frame_id + 1}: " + "".join(part_strings)
+        frame_strings.append(frame_string)
+    
+    # 4. 使用 "换帧符" 连接所有帧
+    skeleton_token_answer = '\n'.join(frame_strings)
+    answer_prefix = f"There are {len(skeleton_indices)} frames in total. Here are the skeleton tokens for {len(BODY_PART_TOKENS)} body parts in each frame:\n"
+    skeleton_token_str = answer_prefix + skeleton_token_answer
+    return skeleton_token_str
+
+
 def get_skeleton_token_str_wBodyPart(skeleton_indices):
     frame_strings = []
     for frame_indices in skeleton_indices: # 遍历每一帧

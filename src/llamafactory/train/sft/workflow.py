@@ -15,6 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+# import debugpy
+# debugpy.listen(('0.0.0.0', 5678))
+# debugpy.wait_for_client()
+
+
 from typing import TYPE_CHECKING, Optional
 import re
 import numpy as np
@@ -39,7 +45,7 @@ if TYPE_CHECKING:
 
 from ...extras_byBrad.convert_skel_token import *
 import sys
-sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+sys.path.append('../Skeleton-in-Context-tpami/')
 from lib.utils.viz_skel_seq import viz_skel_seq_anim # type: ignore
 
     
@@ -56,26 +62,19 @@ def run_sft(
     generating_args: "GeneratingArguments",
     callbacks: Optional[list["TrainerCallback"]] = None,
 ):
+
+    if 'debugpy' in sys.modules:
+        # data_args.max_samples = 1
+        # training_args.per_device_train_batch_size = 1
+        # data_args.preprocessing_num_workers = 1
+        # training_args.per_device_eval_batch_size = 1
+        # training_args.per_device_train_batch_size = 1
+        # training_args.dataloader_num_workers = 1
+        pass
+
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]   # <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
-    
-
-    if 'debugpy' in sys.modules and (training_args.do_train or training_args.do_predict):
-        # finetuning_args.lora_rank = 2
-        data_args.max_samples = 1
-        # training_args.save_steps = 1
-        try:
-            import copy
-            data_args_tmp = copy.deepcopy(data_args)
-            data_args_tmp.dataset[0] = data_args_tmp.dataset[0] + '_debug'
-            dataset_module = get_dataset(template, model_args, data_args_tmp, training_args, stage="sft", **tokenizer_module)
-
-            data_args.dataset[0] = data_args.dataset[0] + '_debug'
-        except:
-            pass
-    
-
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)  # <class 'peft.peft_model.PeftModelForCausalLM'>
     if getattr(model, "is_quantized", False) and not training_args.do_train:
@@ -183,9 +182,9 @@ def run_sft(
             skeleton_processor = skeleton_processor.cuda()
         else:
             from safetensors.torch import load_file as load_safetensors
-            sys.path.append('/home/wxs/MTVCrafter/')
+            sys.path.append('..//MTVCrafter/')
             from models import HYBRID_VQVAE # type: ignore
-            sys.path.remove('/home/wxs/MTVCrafter/')
+            sys.path.remove('..//MTVCrafter/')
             skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
                                               model_args.vqvae_config.vqvae_config.decoder,
                                               model_args.vqvae_config.vqvae_config.vq, 
@@ -237,7 +236,7 @@ def run_sft(
             custom_predict_motion = skeleton_processor.decode(custom_predict_motion_id).squeeze(0).cpu().numpy()  # (T, 17, 3)
 
             import sys
-            sys.path.append('/home/wxs/Skeleton-in-Context-tpami/')
+            sys.path.append('/group/40174/peimingli/bradley//Skeleton-in-Context-tpami/')
             from lib.utils.viz_skel_seq import viz_skel_seq_anim
 
             # viz_skel_seq_anim({'pred': custom_predict_motion}, fs=0.5, if_print=False)
@@ -312,26 +311,48 @@ def run_sft(
         MOTION_LABEL=np.stack(MOTION_LABEL,axis=0)        # [N,T,17,3]
         MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
 
-        # mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
-        #                            - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
-        # mpjpe_all = mpjpe_all * 1000
+        mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
+                                   - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
+        mpjpe_all = mpjpe_all * 1000
 
 
         try:
             skeleton_npy_path_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
             skeleton_scale = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_scale')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
             skeleton_offset = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_transl')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+            
+            MOTION_GT_PIX_NORMED = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','skeleton_pose3d')) for skeleton_npy_path in skeleton_npy_path_list])    # (N,T,1,3)
 
-            MOTION_PRED_PIX = (MOTION_PRED + skeleton_offset) * skeleton_scale
-            MOTION_LABEL_PIX = (MOTION_LABEL + skeleton_offset) * skeleton_scale
+            MOTION_PRED_PIX_AFFINED = (MOTION_PRED + skeleton_offset) * skeleton_scale
+            MOTION_LABEL_PIX_AFFINED = (MOTION_LABEL + skeleton_offset) * skeleton_scale
+            MOTION_GT_PIX_AFFINED = (MOTION_GT_PIX_NORMED + skeleton_offset) * skeleton_scale
+
+            trans_inv = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','affine_trans_inv')) for skeleton_npy_path in skeleton_npy_path_list])  # (N,T,2,3)
+            MOTION_PRED_PIX_AFFINED_xy1 = np.concatenate([MOTION_PRED_PIX_AFFINED[..., :2], np.ones_like(MOTION_PRED_PIX_AFFINED[..., :1])], axis=-1)
+            MOTION_LABEL_PIX_AFFINED_xy1 = np.concatenate([MOTION_LABEL_PIX_AFFINED[..., :2], np.ones_like(MOTION_LABEL_PIX_AFFINED[..., :1])], axis=-1)
+            MOTION_GT_PIX_AFFINED_xy1 = np.concatenate([MOTION_GT_PIX_AFFINED[..., :2], np.ones_like(MOTION_GT_PIX_AFFINED[..., :1])], axis=-1)
+
+            MOTION_PRED_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_PRED_PIX_AFFINED_xy1)
+            MOTION_LABEL_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_LABEL_PIX_AFFINED_xy1)
+            MOTION_GT_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_GT_PIX_AFFINED_xy1)
+
+            MOTION_PRED_PIX = np.concatenate([MOTION_PRED_PIX_xy, MOTION_PRED_PIX_AFFINED[..., 2:]], axis=-1)
+            MOTION_LABEL_PIX = np.concatenate([MOTION_LABEL_PIX_xy, MOTION_LABEL_PIX_AFFINED[..., 2:]], axis=-1)
+            MOTION_GT_PIX = np.concatenate([MOTION_GT_PIX_xy, MOTION_GT_PIX_AFFINED[..., 2:]], axis=-1)
+
+            
 
             factor_2_5d = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','factor_2_5d')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, None]     # (N,T,1,1)
             MOTION_PRED_MM = MOTION_PRED_PIX * factor_2_5d
             MOTION_LABEL_MM = MOTION_LABEL_PIX * factor_2_5d
+            MOTION_GT_MM = MOTION_GT_PIX * factor_2_5d
 
             MOTION_PRED_ROOTREL = MOTION_PRED_MM - MOTION_PRED_MM[...,0:1,:]
             MOTION_LABEL_ROOTREL = MOTION_LABEL_MM - MOTION_LABEL_MM[...,0:1,:]
-            wmpjpe_all = np.linalg.norm(MOTION_LABEL_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
+            MOTION_GT_ROOTREL = MOTION_GT_MM - MOTION_GT_MM[...,0:1,:]
+            mpjpe_all_mm = np.linalg.norm(MOTION_GT_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
+            mpjpe_all_mm_avg = mpjpe_all_mm.mean()
+
         except:
             pass
 

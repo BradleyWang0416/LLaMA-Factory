@@ -988,5 +988,30 @@
       "videos": "videos",
       "skeletons": "skeletons"
     }
+  },
+  "toy_2D_pose_estimation": {
+    "file_name": "_multimodal_data_byBrad/toy/2D_pose_estimation_test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "images": "images"
+    }
+  },
+  "toy_3D_pose_estimation": {
+    "file_name": "_multimodal_data_byBrad/toy/3D_pose_estimation_test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "images": "images"
+    }
+  },
+  "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_300000/test": {
+    "file_name": "_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_300000/test.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "conversations",
+      "videos": "videos",
+      "skeletons": "skeletons"
+    }
   }
 }

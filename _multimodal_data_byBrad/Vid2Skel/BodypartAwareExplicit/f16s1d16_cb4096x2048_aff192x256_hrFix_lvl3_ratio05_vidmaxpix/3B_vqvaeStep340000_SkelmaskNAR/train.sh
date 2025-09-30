@@ -2,20 +2,20 @@ CONFIG=_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x20
 LOG=_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/f16s1d16_cb4096x2048_aff192x256_hrFix_lvl3_ratio05_vidmaxpix/3B_vqvaeStep340000_SkelmaskNAR/train.log
 
 
-CUDA_VISIBLE_DEVICES=0,1,3,4 \
-    nohup \
-    llamafactory-cli \
-    train \
-    $CONFIG \
-    > $LOG &
+# CUDA_VISIBLE_DEVICES=0,1,3,4 \
+#     nohup \
+#     llamafactory-cli \
+#     train \
+#     $CONFIG \
+#     > $LOG &
 
 # CUDA_VISIBLE_DEVICES=3,4 \
 #     llamafactory-cli \
 #     train \
 #     $CONFIG
 
-# ALLOW_EXTRA_ARGS=true \
-# CUDA_VISIBLE_DEVICES=3 \
-#     torchrun --nproc_per_node 1 --master_port 28054 -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
-#     src/llamafactory/launcher.py \
-#     $CONFIG
+ALLOW_EXTRA_ARGS=true \
+CUDA_VISIBLE_DEVICES=2 \
+    torchrun --nproc_per_node 1 --master_port 28154 -m debugpy --listen 0.0.0.0:5680 --wait-for-client \
+    src/llamafactory/launcher.py \
+    $CONFIG
