@@ -116,6 +116,62 @@ def get_skeleton_token_str_wTextualBodyPart_SplitByFrame(skeleton_indices):
     return skeleton_token_str
 
 
+def parse_skeleton_token_str_wTextualBodyPart_SplitByFrame(skeleton_token_str):
+    # --- Pre-computation based on global variables ---
+    # 1. Create a flat list of the original joint indices in the order they
+    #    appear in the generated string. This is our key for re-ordering.
+    ordered_original_indices = []
+    for part_name in BODY_PART_ORDER:
+        ordered_original_indices.extend(JOINT_GROUP_MAP[part_name])
+    
+    # 2. Determine the total number of joints to correctly size the output list.
+    all_joint_indices = set()
+    for indices in JOINT_GROUP_MAP.values():
+        all_joint_indices.update(indices)
+    num_joints = len(all_joint_indices)
+    # --- End of Pre-computation ---
+
+    all_frames_reconstructed = []
+    
+    # Split the input string into lines and ignore the descriptive header line.
+    lines = skeleton_token_str.strip().split('\n')
+    frame_lines = lines[1:]
+
+    # A regular expression to find all instances of <skel_NUM> and capture the NUM part.
+    token_pattern = re.compile(r'<skel_(\d+)>')
+
+    for line in frame_lines:
+        if not line.strip().startswith("Frame "):
+            continue
+
+        # Extract all token numbers from the string. Their order in this list
+        # matches the order defined by `ordered_original_indices`.
+        extracted_tokens = token_pattern.findall(line)
+        
+        # Optional: Add a check for data integrity
+        if len(extracted_tokens) != len(ordered_original_indices):
+            print(f"Warning: Mismatch in expected number of tokens. Found {len(extracted_tokens)}, "
+                  f"expected {len(ordered_original_indices)}. Skipping line.")
+            continue
+        
+        # Convert the list of number strings to a list of integers.
+        extracted_indices = [int(token) for token in extracted_tokens]
+        
+        # Prepare a list to hold the reconstructed, originally ordered indices
+        reconstructed_frame = [0] * num_joints
+        
+        # Reorder the extracted indices back to their original joint order (0, 1, 2, ...).
+        # The i-th value in extracted_indices corresponds to the joint defined
+        # at the i-th position in ordered_original_indices.
+        for i, token_value in enumerate(extracted_indices):
+            original_joint_index = ordered_original_indices[i]
+            reconstructed_frame[original_joint_index] = token_value
+            
+        all_frames_reconstructed.append(reconstructed_frame)
+        
+    return all_frames_reconstructed
+
+
 def get_skeleton_token_str_wBodyPart(skeleton_indices):
     frame_strings = []
     for frame_indices in skeleton_indices: # 遍历每一帧
@@ -216,6 +272,38 @@ def parse_skeleton_token_str_wBodyPart(skeleton_token_str):
         skeleton_indices.append(frame_indices)
     
     return skeleton_indices
+
+
+def get_skeleton_coord_str_wJoint(skeleton_coords):
+    num_frame = skeleton_coords.shape[0]
+
+    frames_str_list = []
+    for frame_id in range(num_frame):
+        skeleton_coords_frame = skeleton_coords[frame_id]  # (17, 3)
+
+        joints_str_list = []
+        for i, joint_name in enumerate(JOINT_ORDER):
+            start_token, _ = JOINT_TOKENS[joint_name]
+            start_token = start_token.replace('<', '').replace('>', '')
+            
+            # 获取当前关节的 VQ-VAE 索引
+            xyz = skeleton_coords_frame[i]
+            x, y, z = xyz
+            x = x.item()
+            y = y.item()
+            z = z.item()
+
+            joint_str = f"{start_token}: ({x:.3f}, {y:.3f}, {z:.3f})"
+            joints_str_list.append(joint_str)
+        joints_str = ". ".join(joints_str_list)
+
+        frame_str = f"Frame {frame_id + 1}: " + joints_str
+        frames_str_list.append(frame_str)
+
+    frames_str = "\n".join(frames_str_list)
+
+
+    return frames_str
 
 
 def get_skeleton_token_str_wJoint(skeleton_indices):

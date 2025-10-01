@@ -353,7 +353,8 @@ class MMPluginMixin:
         CODEBOOK_INDICES = []
         GRID_SHAPES = []
         SOURCE_SLICE_ID = []
-        JOINT2D_CPN = []
+        JOINT2D_CPN_AFFINED_NORMED = []
+        JOINT3D_IMAGE_AFFINED = []
         for skeleton_indices_path in skeletons:
             """
             if isinstance(skeleton, str):
@@ -398,11 +399,16 @@ class MMPluginMixin:
                 source_slice_id = torch.from_numpy(source_slice_id)
                 SOURCE_SLICE_ID.append(source_slice_id)
 
+            joint3d_image_affined_path = skeleton_indices_path.replace('skeleton_code', 'joint3d_image_affined')
+            if os.path.exists(joint3d_image_affined_path):
+                joint3d_image_affined = np.load(joint3d_image_affined_path)  # [3], [C, T_quant, J_quant]
+                joint3d_image_affined = torch.from_numpy(joint3d_image_affined)
+                JOINT3D_IMAGE_AFFINED.append(joint3d_image_affined)
+
             joint2d_cpn_path = skeleton_indices_path.replace('skeleton_code', 'joint2d_cpn')
             if os.path.exists(joint2d_cpn_path):
                 joint2d_cpn = np.load(joint2d_cpn_path)  # [3], [C, T_quant, J_quant]
                 joint2d_cpn = torch.from_numpy(joint2d_cpn)
-                JOINT2D_CPN.append(joint2d_cpn)
 
             norm_offset_path = skeleton_indices_path.replace('skeleton_code', 'norm_transl')
             if os.path.exists(norm_offset_path):
@@ -423,6 +429,7 @@ class MMPluginMixin:
                 joint2d_cpn_xy1 = torch.cat([joint2d_cpn, joint2d_cpn.new_ones(joint2d_cpn[..., :1].shape)], dim=-1)    # [T,17,3]
                 joint2d_cpn_affined = torch.einsum('tij,tkj->tik', joint2d_cpn_xy1, affine_trans)
                 joint2d_cpn_affined_normed = joint2d_cpn_affined / norm_scale[..., None, :2] - norm_offset[..., None, :2]
+                JOINT2D_CPN_AFFINED_NORMED.append(joint2d_cpn_affined_normed)
                 
                 
 
@@ -431,7 +438,8 @@ class MMPluginMixin:
             "skeleton_poses": POSES,
             "skeleton_grid_thw": torch.tensor(GRID_SHAPES, dtype=torch.long),
             "source_slice_id": SOURCE_SLICE_ID,
-            "JOINT2D_CPN": joint2d_cpn,
+            "joint2d_cpn_affined_normed": JOINT2D_CPN_AFFINED_NORMED,   # 记得改模型forward函数
+            "joint3d_image_affined": JOINT3D_IMAGE_AFFINED,   # 记得改模型forward函数
             }
     #########################################################################################
 
@@ -1704,9 +1712,16 @@ class Qwen2VLPlugin(BasePlugin):
                 if self.expand_mm_tokens:
                     # Get the skeleton indices and convert to a token string
                     skeleton_indices = mm_inputs["skeleton_indices"][num_skeleton_tokens]    # list of (T,J). e.g., (4,17)
+                    joint3d_image_affined = mm_inputs["joint3d_image_affined"][num_skeleton_tokens]
                     
                     get_skel_str_func = globals()[processor.skeleton_processor]
-                    skeleton_token_str = get_skel_str_func(skeleton_indices)  # e.g., "<skel_0><skel_1>...<skel_16><|><skel_0>..."
+
+                    if 'coord' in processor.skeleton_processor:
+                        skeleton_input = joint3d_image_affined
+                    else:
+                        skeleton_input = skeleton_indices
+
+                    skeleton_token_str = get_skel_str_func(skeleton_input)  # e.g., "<skel_0><skel_1>...<skel_16><|><skel_0>..."
 
                     content = content.replace(
                         SKELETON_PLACEHOLDER, f"<|skel_start|>{skeleton_token_str}<|skel_end|>", 1,

@@ -64,12 +64,12 @@ def run_sft(
 ):
 
     if 'debugpy' in sys.modules:
-        # data_args.max_samples = 1
+        data_args.max_samples = 512
         # training_args.per_device_train_batch_size = 1
-        # data_args.preprocessing_num_workers = 1
+        data_args.preprocessing_num_workers = 1
         # training_args.per_device_eval_batch_size = 1
         # training_args.per_device_train_batch_size = 1
-        # training_args.dataloader_num_workers = 1
+        training_args.dataloader_num_workers = 1
         pass
 
     tokenizer_module = load_tokenizer(model_args)

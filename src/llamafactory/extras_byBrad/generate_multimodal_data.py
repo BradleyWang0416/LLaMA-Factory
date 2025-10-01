@@ -67,7 +67,10 @@ PROMPT_TEMPLATES = {
         'BodypartAwareExplicit': [
             "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
-        'joint_aware_explicit': [
+        'BodypartAwareExplicit_text': [
+            "Please describe the motion of the person in the video <video> using skeleton tokens. Your response should be formatted as: \"Frame 1: torso: ... left_arm: ... right_arm: ... left_leg: ... right_leg: ...\nFrame 2: ... \""
+        ],
+        'JointAwareExplicit': [
             "Please provide the skeletal representation for the movement in the video <video>. Use <|frame_break|> to separate frames. "
             "Your response must be structured for each frame using all 17 joint tags: <Hips>...</Hips><Right_Hip>...</Right_Hip><Right_Knee>...</Right_Knee><Right_Foot>...</Right_Foot><Left_Hip>...</Left_Hip><Left_Knee>...</Left_Knee><Left_Foot>...</Left_Foot><Spine>...</Spine><Thorax>...</Thorax><Neck/Nose>...</Neck/Nose><Head>...</Head><Left_Shoulder>...</Left_Shoulder><Left_Elbow>...</Left_Elbow><Left_Wrist>...</Left_Wrist><Right_Shoulder>...</Right_Shoulder><Right_Elbow>...</Right_Elbow><Right_Wrist>...</Right_Wrist>.",
         ],
@@ -103,7 +106,7 @@ PROMPT_TEMPLATES = {
         'BodypartAwareExplicit': [
             "Generate the next set of skeleton tokens that logically follow this sequence: <skeleton>. Use <|frame_break|> to separate frames. Ensure the output adheres to the full structure: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
-        'joint_aware_explicit': [
+        'JointAwareExplicit': [
             # TODO
         ],
     },
@@ -137,7 +140,7 @@ PROMPT_TEMPLATES = {
         'BodypartAwareExplicit': [
             "Generate the skeleton motion for the description: \"<text_description>\". Use <|frame_break|> to separate frames. Your response must be structured for each frame using all five body part tags: <torso>...</torso><left_arm>...</left_arm><right_arm>...</right_arm><left_leg>...</left_leg><right_leg>...</right_leg>.",
         ],
-        'joint_aware_explicit': [
+        'JointAwareExplicit': [
             # TODO
         ],
     },
@@ -167,7 +170,7 @@ TASK_TEMPLATE = {
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--joint_data_type', type=str, required=True, choices=['joint3d_image_normed', 'joint3d_image_affined_normed'])
-    parser.add_argument('--prompt_template', type=str, required=True, choices=['fixed', 'simple', 'bodypart_aware', 'BodypartAwareExplicit', 'joint_aware_explicit'])
+    parser.add_argument('--prompt_template', type=str, required=True, choices=['fixed', 'simple', 'bodypart_aware', 'BodypartAwareExplicit', 'JointAwareExplicit'])
     parser.add_argument('--task', type=str, required=True, choices=['Vid2Skel', 'SkelPred', 'Text2Skel'])
     parser.add_argument('--data_split', type=str, required=True)
 
@@ -317,6 +320,24 @@ if __name__ == "__main__":
                 batch_dict[element] = batch[element_id]
             batch = edict(batch_dict)
 
+
+        SOURCE_DATA_DICT['norm_scale'].append(batch[args.joint_data_type.replace('normed', 'scale')].cpu().numpy())
+        SOURCE_DATA_DICT['norm_transl'].append(batch[args.joint_data_type.replace('normed', 'transl')].cpu().numpy())
+        SOURCE_DATA_DICT['slice_id'].append(batch['slice_id'].cpu().numpy())
+        if task == 'Vid2Skel':
+            SOURCE_DATA_DICT['image_sources'].append(batch['image_sources'])
+        if args.data_split == 'test':
+            SOURCE_DATA_DICT['factor_2_5d'].append(batch['factor_2_5d'].cpu().numpy())
+        if 'affine_trans_inv' in get_item_list:
+            SOURCE_DATA_DICT['affine_trans_inv'].append(batch['affine_trans_inv'].cpu().numpy())
+        if 'affine_trans' in get_item_list:
+            SOURCE_DATA_DICT['affine_trans'].append(batch['affine_trans'].cpu().numpy())
+        if 'joint2d_cpn' in get_item_list:
+            SOURCE_DATA_DICT['joint2d_cpn'].append(batch['joint2d_cpn'].cpu().numpy())
+        if 'joint3d_image_affined' in get_item_list and 'joint3d_image_affined' != args.joint_data_type:
+            SOURCE_DATA_DICT['joint3d_image_affined'].append(batch['joint3d_image_affined'].cpu().numpy())
+
+
         joint3d_video = batch[args.joint_data_type].cuda()
         if args.vision_guidance_ratio > 0:
             video_rgb = batch['video_rgb'].cuda()  # [B,T,H,W,3]
@@ -332,19 +353,6 @@ if __name__ == "__main__":
         SOURCE_DATA_DICT['skeleton_pose3d'].append(joint3d_video)
         SOURCE_DATA_DICT['skeleton_code'].append(codebook_indices)
         SOURCE_DATA_DICT['skeleton_quant_shape'].append(quant_shape)
-        SOURCE_DATA_DICT['norm_scale'].append(batch[args.joint_data_type.replace('normed', 'scale')].cpu().numpy())
-        SOURCE_DATA_DICT['norm_transl'].append(batch[args.joint_data_type.replace('normed', 'transl')].cpu().numpy())
-        SOURCE_DATA_DICT['slice_id'].append(batch['slice_id'].cpu().numpy())
-        if task == 'Vid2Skel':
-            SOURCE_DATA_DICT['image_sources'].append(batch['image_sources'])
-        if args.data_split == 'test':
-            SOURCE_DATA_DICT['factor_2_5d'].append(batch['factor_2_5d'].cpu().numpy())
-        if 'affine_trans_inv' in get_item_list:
-            SOURCE_DATA_DICT['affine_trans_inv'].append(batch['affine_trans_inv'].cpu().numpy())
-        if 'affine_trans' in get_item_list:
-            SOURCE_DATA_DICT['affine_trans'].append(batch['affine_trans'].cpu().numpy())
-        if 'joint2d_cpn' in get_item_list:
-            SOURCE_DATA_DICT['joint2d_cpn'].append(batch['joint2d_cpn'].cpu().numpy())
 
         if 'debugpy' in sys.modules:
             if len(SOURCE_DATA_DICT['skeleton_code']) >= 32:

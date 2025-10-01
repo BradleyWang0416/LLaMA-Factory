@@ -8,7 +8,7 @@ joint_data_type=joint3d_image_affined_normed
 get_item_list="['joint3d_image','joint3d_image_normed','factor_2_5d','joint3d_image_scale','joint3d_image_transl','video_rgb','joint3d_image_affined','joint3d_image_affined_normed','joint3d_image_affined_scale','joint3d_image_affined_transl','slice_id','image_sources','joint_2_5d_image','affine_trans','affine_trans_inv','joint2d','joint2d_cpn','joint3d_cam','joint3d_cam_rootrel_meter']"
 
 
-prompt_template=BodypartAwareExplicit
+prompt_template=JointAwareExplicit
 task=Vid2Skel
 data_split=test
 # resume_path=../MTVCrafter_weights/vqvae_experiment/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/models/checkpoint_epoch_185_step_300000

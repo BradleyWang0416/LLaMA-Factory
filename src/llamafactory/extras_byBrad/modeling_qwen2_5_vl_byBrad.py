@@ -42,7 +42,7 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         ########## SKELETON ATTENTION PART #####################################################################################################################
         self.skeleton_attention_type = kwargs_byBrad['skeleton_attention_type']
         if self.skeleton_attention_type is not None:
-            assert self.skeleton_attention_type in ['base', 'base_v2', 'nar']
+            assert self.skeleton_attention_type in ['base', 'base_v2', 'nar', 'deformable_attn_w_joint2dcpn']
         setattr(self.model, 'skeleton_attention_type', self.skeleton_attention_type)
         setattr(self.model.language_model, 'skeleton_attention_type', self.skeleton_attention_type)
 
@@ -288,12 +288,20 @@ class Qwen2_5_VLForConditionalGenerationWithSkeleton(Qwen2_5_VLForConditionalGen
         skeleton_poses: Optional[torch.FloatTensor] = None,  # 骨架数据的3D姿态
         skeleton_grid_thw: Optional[torch.LongTensor] = None,  # 骨架数据的网格尺寸
         source_slice_id = None,  # 用于解码的源切片ID
+        joint2d_cpn_affined_normed = None,
         # --------------------
         **kwargs: Unpack[TransformersKwargs],
-    ) -> Union[tuple, Qwen2_5_VLCausalLMOutputWithPast]:     
+    ) -> Union[tuple, Qwen2_5_VLCausalLMOutputWithPast]:
 
 
 
+        if self.skeleton_attention_type == 'deformable_attn_w_joint2dcpn':
+            assert joint2d_cpn_affined_normed is not None
+            try:
+                joint2d_cpn_affined_normed = torch.stack(joint2d_cpn_affined_normed)
+            except:
+                pass
+            kwargs['joint2d_cpn_affined_normed'] = joint2d_cpn_affined_normed
 
 
         # --- 动态替换逻辑的起点 ---
@@ -1178,7 +1186,14 @@ def custom_qwen2_5_vl_model_forward(
             assert (video_mask[:,:,:1] == video_mask[:,:,1:]).all()
             video_mask_unpad = video_mask[:,:,0]    # [1,352]
             kwargs['video_mask_unpad'] = video_mask_unpad
+        
 
+        if self.skeleton_attention_type == 'deformable_attn_w_joint2dcpn':
+            joint2d_cpn_affined_normed = kwargs['joint2d_cpn_affined_normed']
+
+            assert (video_mask[:,:,:1] == video_mask[:,:,1:]).all()
+            video_mask_unpad = video_mask[:,:,0]    # [1,352]
+            kwargs['video_mask_unpad'] = video_mask_unpad
 
 
 
