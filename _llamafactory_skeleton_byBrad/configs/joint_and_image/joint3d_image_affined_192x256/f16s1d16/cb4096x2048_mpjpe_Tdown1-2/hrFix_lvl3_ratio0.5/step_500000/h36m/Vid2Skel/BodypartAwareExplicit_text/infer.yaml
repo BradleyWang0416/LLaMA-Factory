@@ -1,11 +1,11 @@
-model_name_or_path: saves/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFixExclStage4.2_lvl3_ratio0.5/step300000/merge/checkpoint-4500
+model_name_or_path: _llamafactory_skeleton_byBrad/saves/joint_and_image/joint3d_image_affined_192x256/f16s1d16/cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_500000/h36m/Vid2Skel/BodypartAwareExplicit_text/merge
 
 
 # eval_dataset: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_300000/test.jsonl
 eval_dataset: placeholder   # see: src/llamafactory/data/parser.py::get_dataset_list
 dataset_dir:
     "placeholder":
-        "file_name": "data/_multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_300000/test.jsonl"
+        "file_name": "_llamafactory_skeleton_byBrad/data/joint_and_image/joint3d_image_affined_192x256/f16s1d16/cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_500000/h36m/Vid2Skel/test_data.jsonl"
         "formatting": "sharegpt"
         "columns":
             "messages": "conversations"
@@ -13,21 +13,22 @@ dataset_dir:
             "skeletons": "skeletons"
 
 
-get_skel_str_func: get_skeleton_token_str_wBodyPart       # used in train and infer
-parse_skel_str_func: parse_skeleton_token_str_wBodyPart   # only used in infer
+get_skel_str_func: get_skeleton_token_str_wTextualBodyPart_SplitByFrame       # used in train and infer
+parse_skel_str_func: null   # only used in infer
 
 max_samples: 512
 
 # add_special_tokens: <|skeleton_pad|>,<|skel_start|>,<|skel_end|>
 # add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>
-add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+# add_special_tokens: <|skel_start|>,<|skel_end|>,<|frame_break|>,<torso>,</torso>,<left_arm>,</left_arm>,<right_arm>,</right_arm>,<left_leg>,</left_leg>,<right_leg>,</right_leg>
+add_special_tokens: <|skel_start|>,<|skel_end|>
 
 resize_vocab: true
 
 
 # vqvae_ckpt: /home/wxs/LLaMA-Factory/src/llamafactory/extras_byBrad/vqvae_experiment/h36m_j3d_f16s1_cb4096x2048_mpjpe/checkpoint_epoch_47_step_440000  # only used in infer
 # codebook_size: 4096
-vqvae_config: _multimodal_data_byBrad/Vid2Skel/BodypartAwareExplicit/joint_and_image/joint3d_image_affined_192x256/f16s1d16_cb4096x2048_mpjpe_Tdown1-2/hrFixExclStage4.2_lvl3_ratio0.5/step300000/vqvae_config.py
+vqvae_config: _llamafactory_skeleton_byBrad/configs/joint_and_image/joint3d_image_affined_192x256/f16s1d16/cb4096x2048_mpjpe_Tdown1-2/hrFix_lvl3_ratio0.5/step_500000/h36m/Vid2Skel/BodypartAwareExplicit_text/vqvae_config.py
 
 image_max_pixels: 262144
 video_max_pixels: 49168

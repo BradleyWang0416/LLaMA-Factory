@@ -134,6 +134,10 @@ JOINT_ORDER = [
 ]
 JOINT_TOKENS = {name: (f"<{name}>", f"</{name}>") for name in JOINT_ORDER}
 #########################################################################################
+# ADDED BY BRADLEY 251002 ###############################################################
+PROMPT_PLACEHOLDER = os.getenv("PROMPT_PLACEHOLDER", "<prompt_placeholder>")
+RESPONSE_PLACEHOLDER = os.getenv("RESPONSE_PLACEHOLDER", "<response_placeholder>")
+#########################################################################################
 
 class AttentionFunction(str, Enum):
     AUTO = "auto"
