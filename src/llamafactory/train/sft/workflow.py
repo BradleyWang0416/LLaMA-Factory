@@ -20,7 +20,10 @@
 # debugpy.listen(('0.0.0.0', 5678))
 # debugpy.wait_for_client()
 
-
+import json
+import joblib
+from time import time
+from collections import defaultdict
 from typing import TYPE_CHECKING, Optional
 import re
 import numpy as np
@@ -42,12 +45,15 @@ if TYPE_CHECKING:
 
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
-
+import _llamafactory_skeleton_byBrad.data_utils.convert_skel_token as convert_skel_token_v2
 from ...extras_byBrad.convert_skel_token import *
 import sys
 sys.path.append('../Skeleton-in-Context-tpami/')
 from lib.utils.viz_skel_seq import viz_skel_seq_anim # type: ignore
-
+sys.path.remove('../Skeleton-in-Context-tpami/')
+sys.path.append("../ContextAwarePoseFormer_Private/H36M-Toolbox/")
+from multimodal_h36m_dataset_byBradley import Multimodal_Mocap_Dataset, DATA_ROOT_PATH
+sys.path.remove("../ContextAwarePoseFormer_Private/H36M-Toolbox/")
     
 
 
@@ -63,6 +69,20 @@ def run_sft(
     callbacks: Optional[list["TrainerCallback"]] = None,
 ):
 
+
+    print('\npython ' + ' '.join(sys.argv))
+    print('\nPID: ' + str(os.getpid()))
+
+
+    if data_args.dataset_eval_range is not None:
+        dataset_start_id, dataset_end_id = data_args.dataset_eval_range
+        print('\n\n--------------------------------------------------------------')
+        print(f'Testing sub-dataset {dataset_start_id} -- {dataset_end_id}')
+        print('--------------------------------------------------------------\n\n')
+
+
+
+
     if 'debugpy' in sys.modules:
         data_args.max_samples = 512
         # training_args.per_device_train_batch_size = 1
@@ -70,11 +90,56 @@ def run_sft(
         # training_args.per_device_eval_batch_size = 1
         # training_args.per_device_train_batch_size = 1
         training_args.dataloader_num_workers = 1
+        # training_args.save_steps=1
         pass
-
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]   # <class 'transformers.models.qwen2.tokenization_qwen2_fast.Qwen2TokenizerFast'>
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
+    
+
+
+
+    try:
+        dataset_file = data_args.dataset_dir['placeholder']['file_name']
+        assumed_data_split = 'test' if 'test' in dataset_file else 'train'
+        dataset_dir = os.path.dirname(dataset_file)
+        dataset_args_file = os.path.join(dataset_dir, assumed_data_split+'_dataset_args.json')
+        with open(dataset_args_file, 'r') as f:
+            dataset_args = json.load(f)
+        print("\nLoading dataset...", end=' ')
+        dataset_loading_time_st = time()
+        if 'video_rgb' in dataset_args['get_item_list']:
+            dataset_args['get_item_list'] = [get_item for get_item in dataset_args['get_item_list'] if get_item != 'video_rgb']
+        mocap_dataset = Multimodal_Mocap_Dataset(
+            **dataset_args
+        )
+        print(f"Took {time()-dataset_loading_time_st:.1f} seconds\n")
+        vqvae_output_file = os.path.join(dataset_dir, assumed_data_split+'_vqvae_output.pkl')
+        if os.path.exists(vqvae_output_file):
+            vqvae_output = joblib.load(vqvae_output_file)
+
+        prompt_config_file = os.path.join(dataset_dir, assumed_data_split+'_prompt_config.json')
+        with open(prompt_config_file, 'r') as f:
+            prompt_config = json.load(f)
+        task_name = prompt_config['task']
+        prompt_type = prompt_config['prompt_type']
+        get_skel_str_func_info = prompt_config['get_skel_str_func']
+
+
+        setattr(template.mm_plugin, 'mocap_dataset', mocap_dataset)
+        if os.path.exists(vqvae_output_file):
+            setattr(template.mm_plugin, 'vqvae_output', vqvae_output)
+        setattr(template.mm_plugin, 'task_name', task_name)
+        setattr(template.mm_plugin, 'prompt_type', prompt_type)
+        setattr(template.mm_plugin, 'get_skel_str_func', get_skel_str_func_info)
+
+    except Exception as e:
+        print(f'Error loading mocap dataset or vqvae output or prompt config: {e}')
+        pass
+
+
+           
+    
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)  # <class 'peft.peft_model.PeftModelForCausalLM'>
     if getattr(model, "is_quantized", False) and not training_args.do_train:
@@ -162,54 +227,75 @@ def run_sft(
     # Predict
     if training_args.do_predict:
 
+        if get_skel_str_func_info['input'] == 'skeleton_indices':
+            if model_args.vqvae_ckpt is not None:
+                print('\n'.join(['Warning!!! using vqvae from llamafactory.extras_byBrad.vqvae is deprecated, please use `hybrid_vqvae` instead.' for _ in range(99)]))
 
-        if model_args.vqvae_ckpt is not None:
-            print('\n'.join(['Warning!!! using vqvae from llamafactory.extras_byBrad.vqvae is deprecated, please use `hybrid_vqvae` instead.' for _ in range(99)]))
+                from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
+                from safetensors.torch import load_file
+                encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
+                vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
+                decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
+                skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
 
-            from llamafactory.extras_byBrad.vqvae import SKEL_VQVAE as SkeletonProcessor, Encoder, VectorQuantizer, Decoder
-            from safetensors.torch import load_file
-            encoder = Encoder(in_channels=3, mid_channels=[128, 512], out_channels=3072, downsample_time=[2, 2], downsample_joint=[1, 1])
-            vq = VectorQuantizer(nb_code=8192, code_dim=3072, is_train=False)
-            decoder = Decoder(in_channels=3072, mid_channels=[512, 128], out_channels=3, upsample_rate=2.0, frame_upsample_rate=[2.0, 2.0], joint_upsample_rate=[1.0, 1.0])
-            skeleton_processor = SkeletonProcessor(encoder, decoder, vq)
+                ckpt_path = model_args.vqvae_ckpt
+                state_dict = load_file(ckpt_path, device="cpu")
+                skeleton_processor.load_state_dict(state_dict)
+                skeleton_processor.eval()
+                for param in skeleton_processor.parameters():
+                    param.requires_grad = False
+                skeleton_processor = skeleton_processor.cuda()
+            elif model_args.vqvae_config is not None:
+                from safetensors.torch import load_file as load_safetensors
+                sys.path.append('..//MTVCrafter/')
+                from models import HYBRID_VQVAE # type: ignore
+                sys.path.remove('..//MTVCrafter/')
+                skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
+                                                model_args.vqvae_config.vqvae_config.decoder,
+                                                model_args.vqvae_config.vqvae_config.vq, 
+                                                vision_config=model_args.vqvae_config.vision_config, 
+                                                joint_data_type=model_args.vqvae_config.vqvae_config.joint_data_type,
+                                                )
+                vqvae_ckpt = model_args.vqvae_config.vqvae_config.resume_path
+                skeleton_processor.load_model_weights(vqvae_ckpt)
+                skeleton_processor.eval()
+                for param in skeleton_processor.parameters():
+                    param.requires_grad = False
+                skeleton_processor = skeleton_processor.cuda()
+            elif os.path.exists(os.path.join(os.path.dirname(sys.argv[1]), 'vqvae_config.py')):
+                try:
+                    vqvae_config_python_file = os.path.join(os.path.dirname(sys.argv[1]), 'vqvae_config.py')
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("vqvae_config_module", vqvae_config_python_file)
+                    vqvae_config_module = importlib.util.module_from_spec(spec)
+                    sys.modules["vqvae_config_module"] = vqvae_config_module
+                    spec.loader.exec_module(vqvae_config_module)
+                    from easydict import EasyDict as edict
+                    setattr(model_args, 'vqvae_config', edict(
+                        vqvae_config=vqvae_config_module.vqvae_config,
+                        vision_config=vqvae_config_module.vision_config,
+                    ))
 
-            ckpt_path = model_args.vqvae_ckpt
-            state_dict = load_file(ckpt_path, device="cpu")
-            skeleton_processor.load_state_dict(state_dict)
-            skeleton_processor.eval()
-            for param in skeleton_processor.parameters():
-                param.requires_grad = False
-            skeleton_processor = skeleton_processor.cuda()
-        else:
-            from safetensors.torch import load_file as load_safetensors
-            sys.path.append('..//MTVCrafter/')
-            from models import HYBRID_VQVAE # type: ignore
-            sys.path.remove('..//MTVCrafter/')
-            skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
-                                              model_args.vqvae_config.vqvae_config.decoder,
-                                              model_args.vqvae_config.vqvae_config.vq, 
-                                              vision_config=model_args.vqvae_config.vision_config, 
-                                              joint_data_type=model_args.vqvae_config.vqvae_config.joint_data_type,
-                                              )
-
-            vqvae_ckpt = model_args.vqvae_config.vqvae_config.resume_path
-            safetensors_path = os.path.join(vqvae_ckpt, "model.safetensors")
-            pytorch_bin_path = os.path.join(vqvae_ckpt, "pytorch_model.bin")
-            if os.path.exists(safetensors_path):
-                print(f"Loading model from {safetensors_path}")
-                state_dict = load_safetensors(safetensors_path, device="cpu")
-            elif os.path.exists(pytorch_bin_path):
-                print(f"Loading model from {pytorch_bin_path}")
-                state_dict = torch.load(pytorch_bin_path, map_location="cpu")
+                    from safetensors.torch import load_file as load_safetensors
+                    sys.path.append('..//MTVCrafter/')
+                    from models import HYBRID_VQVAE # type: ignore
+                    sys.path.remove('..//MTVCrafter/')
+                    skeleton_processor = HYBRID_VQVAE(model_args.vqvae_config.vqvae_config.encoder,
+                                                    model_args.vqvae_config.vqvae_config.decoder,
+                                                    model_args.vqvae_config.vqvae_config.vq, 
+                                                    vision_config=model_args.vqvae_config.vision_config, 
+                                                    joint_data_type=model_args.vqvae_config.vqvae_config.joint_data_type,
+                                                    )
+                    vqvae_ckpt = model_args.vqvae_config.vqvae_config.resume_path
+                    skeleton_processor.load_model_weights(vqvae_ckpt)
+                    skeleton_processor.eval()
+                    for param in skeleton_processor.parameters():
+                        param.requires_grad = False
+                    skeleton_processor = skeleton_processor.cuda()
+                except Exception as e:
+                    print(e)
             else:
-                raise FileNotFoundError(f"Neither model.safetensors nor pytorch_model.bin found in {vqvae_ckpt}")
-            skeleton_processor.load_state_dict(state_dict, strict=True)
-            skeleton_processor.eval()
-            for param in skeleton_processor.parameters():
-                param.requires_grad = False
-            skeleton_processor = skeleton_processor.cuda()
-
-
+                raise NotImplementedError
         
 
         """
@@ -246,17 +332,32 @@ def run_sft(
         ################################################################################################################################
         """
 
-        get_skel_str_func = globals()[model_args.get_skel_str_func]
+        # get_skel_str_func = globals()[model_args.get_skel_str_func]
         # same as: globals()[tokenizer_module['processor']['skeleton_processor']]
+        # parse_skel_str_func = globals()[model_args.parse_skel_str_func]
 
-        parse_skel_str_func = globals()[model_args.parse_skel_str_func]
+        get_skel_str_func = getattr(convert_skel_token_v2, get_skel_str_func_info['name'])
+        parse_skel_str_func = getattr(convert_skel_token_v2, get_skel_str_func_info['name'].replace('get_', 'parse_'))
 
 
         logger.warning_rank0_once("Batch generation can be very slow. Consider using `scripts/vllm_infer.py` instead.")
+
+        if data_args.dataset_eval_range is not None:
+            from datasets import Dataset
+            dataset_start_id, dataset_end_id = data_args.dataset_eval_range
+            dataset_module["eval_dataset"] = Dataset.from_dict(dataset_module["eval_dataset"][dataset_start_id:dataset_end_id])
+        else:
+            dataset_start_id, dataset_end_id = 'all', 'all'
+
+
         predict_results = trainer.predict(dataset_module["eval_dataset"], metric_key_prefix="predict", **gen_kwargs)
+        """
+        from datasets import Dataset
+        pred_results = trainer.predict(Dataset.from_dict(dataset_module["eval_dataset"][0:1]), metric_key_prefix="predict", **gen_kwargs)
+        """
+        # print(tokenizer.decode(dataset_module["eval_dataset"][0]['input_ids']).replace('<|video_pad|>',''))
         # predict_results[0]: predictions. (10, 1133)
         # predict_results[1]: label_ids. (10, 96)
-
         MOTION_LABEL = []
         MOTION_PRED = []
         success_log = []
@@ -272,14 +373,20 @@ def run_sft(
             motion_id_label = parse_skel_str_func(text_label)
             motion_id_label = np.array(motion_id_label)
             motion_id_label = torch.from_numpy(motion_id_label).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
-            motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
+            if get_skel_str_func_info['input'] == 'skeleton_indices':
+                motion_label = skeleton_processor.decode(motion_id_label).squeeze(0).cpu().numpy()  # (T, 17, 3)
+            else:
+                motion_label = motion_id_label.cpu().numpy()
 
 
             try:
                 motion_id_prediction = parse_skel_str_func(text_prediction)
                 motion_id_prediction = np.array(motion_id_prediction)
                 motion_id_prediction = torch.from_numpy(motion_id_prediction).long().unsqueeze(0).cuda()  # (1, quan_t, 17)
-                motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
+                if get_skel_str_func_info['input'] == 'skeleton_indices':
+                    motion_prediction = skeleton_processor.decode(motion_id_prediction).squeeze(0).cpu().numpy()  # (T, 17, 3)
+                else:
+                    motion_prediction = motion_id_prediction.cpu().numpy()
 
                 MOTION_LABEL.append(motion_label)
                 MOTION_PRED.append(motion_prediction)
@@ -287,15 +394,15 @@ def run_sft(
 
 
 
-                source_slice_id_path = dataset_module["eval_dataset"][sample_id]['skeletons'][0].replace('skeleton_code', 'source_slice_id')
-                if os.path.exists(source_slice_id_path):
-                    source_slice_id = np.load(source_slice_id_path)   # (T,)
+                # source_slice_id_path = dataset_module["eval_dataset"][sample_id]['skeletons'][0].replace('skeleton_code', 'source_slice_id')
+                # if os.path.exists(source_slice_id_path):
+                #     source_slice_id = np.load(source_slice_id_path)   # (T,)
 
-                    if 'h36m_data' not in locals():
-                        import joblib
-                        h36m_data = joblib.load("/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl")
+                #     if 'h36m_data' not in locals():
+                #         import joblib
+                #         h36m_data = joblib.load("/data2/wxs/DATASETS/Human3.6M_for_MotionBERT/h36m_sh_conf_cam_source_final.pkl")
                     
-                    camera_name = h36m_data['test']['camera_name'][source_slice_id]
+                #     camera_name = h36m_data['test']['camera_name'][source_slice_id]
 
 
 
@@ -307,51 +414,155 @@ def run_sft(
                 print(f'[SampleID {sample_id}] {e}. Skipping this sample')
                 continue
 
-
         MOTION_LABEL=np.stack(MOTION_LABEL,axis=0)        # [N,T,17,3]
-        MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
+        try: 
+            MOTION_PRED=np.stack(MOTION_PRED,axis=0)          # [N,T,17,3]
+        except ValueError as e:
+            valid_shape_indices = []
+            new_motion_pred = []
+            for pred_id, motion_pred_ in enumerate(MOTION_PRED):
+                if motion_pred_.shape == MOTION_LABEL[0].shape:
+                    valid_shape_indices.append(pred_id)
+                    new_motion_pred.append(motion_pred_)
+            MOTION_PRED = np.stack(new_motion_pred,axis=0)
+            MOTION_LABEL = MOTION_LABEL[valid_shape_indices]
+
+            success_log = np.array(success_log)[valid_shape_indices].tolist()
 
         mpjpe_all = np.linalg.norm((MOTION_LABEL - MOTION_LABEL[...,0:1,:])
                                    - (MOTION_PRED - MOTION_PRED[...,0:1,:]), axis=-1).mean((-2,-1)) # (N,)
         mpjpe_all = mpjpe_all * 1000
+        print(f'avg mpjpe_all: ({mpjpe_all.shape} samples)', mpjpe_all.mean())
 
 
         try:
-            skeleton_npy_path_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
-            skeleton_scale = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_scale')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
-            skeleton_offset = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_transl')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+            if isinstance(dataset_module["eval_dataset"]['skeletons'][0][0], str):
+                skeleton_npy_path_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
+                skeleton_scale = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_scale')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+                skeleton_offset = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','norm_transl')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, :]     # (N,T,1,3)
+                MOTION_GT_PIX_NORMED = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','skeleton_pose3d')) for skeleton_npy_path in skeleton_npy_path_list])    # (N,T,1,3)
+                trans_inv = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','affine_trans_inv')) for skeleton_npy_path in skeleton_npy_path_list])  # (N,T,2,3)
+                factor_2_5d = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','factor_2_5d')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, None]     # (N,T,1,1)
+            else:
+                if task_name == 'SkelPred':
+                    history_skel_info_dict_list = [dataset_module["eval_dataset"]['skeletons'][local_sample_id][0] for local_sample_id in range(len(dataset_module["eval_dataset"]['skeletons']))]
+                    skel_info_dict_list = [dataset_module["eval_dataset"]['skeletons'][local_sample_id][1] for local_sample_id in range(len(dataset_module["eval_dataset"]['skeletons']))]
+                elif task_name == 'Vid2Skel-SkelPred-TwoTurn':
+                    history_skel_info_dict_list = [dataset_module["eval_dataset"]['skeletons'][local_sample_id][0] for local_sample_id in range(len(dataset_module["eval_dataset"]['skeletons']))]
+                    if len(dataset_module["eval_dataset"]['skeletons'][0]) == 2:
+                        skel_info_dict_list = [dataset_module["eval_dataset"]['skeletons'][local_sample_id][1] for local_sample_id in range(len(dataset_module["eval_dataset"]['skeletons']))]
+                    else:
+                        print('!!!!!! It seems like you are testing >>>Vid2Skel<<< task inside a >>>Vid2Skel-SkelPred-TwoTurn<<< project. Check code if it is not what you intend\n'*50)
+                        skel_info_dict_list = history_skel_info_dict_list
+                else:
+                    skel_info_dict_list = sum(dataset_module["eval_dataset"]['skeletons'],[])
+                SKEL_DICT = defaultdict(list)
+
+                # for idx in range(len(skel_info_dict_list)):
+                for idx in success_log:
+                    skel_item = skel_info_dict_list[idx]
+
+                    data_key = skel_item['data_key']
+                    data_aux_keys = skel_item['data_aux_key']
+                    st_id = skel_item['st_id']
+                    ed_id = skel_item['ed_id']
+                    sample_id = skel_item['sample_id']
+
+                    sample_dict = mocap_dataset[sample_id]
+                    SKEL_DICT[data_key].append(sample_dict[data_key])
+                    for data_aux_key in data_aux_keys:
+                        if data_aux_key == data_key:
+                            continue
+                        if data_aux_key in sample_dict.keys():
+                            SKEL_DICT[data_aux_key].append(sample_dict[data_aux_key])
+                    # skeleton_indices = vqvae_output[f"{data_key}_code"][sample_id]
+                    # history_skeleton_indices = vqvae_output[f"{data_key}_code"][history_skel_info_dict_list[idx]['sample_id']]
+
+                for key in SKEL_DICT:
+                    try:
+                        SKEL_DICT[key] = np.stack(SKEL_DICT[key], axis=0)
+                    except:
+                        pass
+                
+
+                MOTION_GT_PIX_NORMED = SKEL_DICT[data_key]
+                if 'image' in data_key:
+                    skeleton_scale = SKEL_DICT[data_key.replace('_normed', '_scale')][..., None, :]
+                    skeleton_offset = SKEL_DICT[data_key.replace('_normed', '_transl')][..., None, :]
+                    trans_inv = SKEL_DICT['affine_trans_inv']
+                    factor_2_5d = SKEL_DICT['factor_2_5d'][..., None, None]
+                
+
+
+            if 'joint3d_cam' in data_key:
+                MOTION_PRED_MM = MOTION_PRED * 1000
+                MOTION_LABEL_MM = MOTION_LABEL * 1000
+                MOTION_GT_MM = MOTION_GT_PIX_NORMED * 1000
+                
+            elif 'image' in data_key:
+                MOTION_PRED_PIX_AFFINED = (MOTION_PRED + skeleton_offset) * skeleton_scale
+                MOTION_LABEL_PIX_AFFINED = (MOTION_LABEL + skeleton_offset) * skeleton_scale
+                MOTION_GT_PIX_AFFINED = (MOTION_GT_PIX_NORMED + skeleton_offset) * skeleton_scale
+
+                mpjpe_all_pix_affined_avg = np.linalg.norm(MOTION_PRED_PIX_AFFINED - MOTION_LABEL_PIX_AFFINED, axis=-1).mean()
+                try:
+                    save_path = os.path.dirname(sys.argv[1])
+                    save_path = os.path.join(save_path, f'save_data_{dataset_start_id}-{dataset_end_id}')
+                    os.makedirs(save_path, exist_ok=True)
+                    np.save(os.path.join(save_path, f'pix_affined_pred_{mpjpe_all_pix_affined_avg:.1f}.npy'), MOTION_PRED_PIX_AFFINED)
+                    np.save(os.path.join(save_path, f'pix_affined_label_{mpjpe_all_pix_affined_avg:.1f}.npy'), MOTION_LABEL_PIX_AFFINED)
+                except Exception:
+                    pass
+
+
+                MOTION_PRED_PIX_AFFINED_xy1 = np.concatenate([MOTION_PRED_PIX_AFFINED[..., :2], np.ones_like(MOTION_PRED_PIX_AFFINED[..., :1])], axis=-1)
+                MOTION_LABEL_PIX_AFFINED_xy1 = np.concatenate([MOTION_LABEL_PIX_AFFINED[..., :2], np.ones_like(MOTION_LABEL_PIX_AFFINED[..., :1])], axis=-1)
+                MOTION_GT_PIX_AFFINED_xy1 = np.concatenate([MOTION_GT_PIX_AFFINED[..., :2], np.ones_like(MOTION_GT_PIX_AFFINED[..., :1])], axis=-1)
+
+                MOTION_PRED_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_PRED_PIX_AFFINED_xy1)
+                MOTION_LABEL_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_LABEL_PIX_AFFINED_xy1)
+                MOTION_GT_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_GT_PIX_AFFINED_xy1)
+
+                MOTION_PRED_PIX = np.concatenate([MOTION_PRED_PIX_xy, MOTION_PRED_PIX_AFFINED[..., 2:]], axis=-1)
+                MOTION_LABEL_PIX = np.concatenate([MOTION_LABEL_PIX_xy, MOTION_LABEL_PIX_AFFINED[..., 2:]], axis=-1)
+                MOTION_GT_PIX = np.concatenate([MOTION_GT_PIX_xy, MOTION_GT_PIX_AFFINED[..., 2:]], axis=-1)
+
+
+                mpjpe_all_pix_avg = np.linalg.norm(MOTION_LABEL_PIX - MOTION_PRED_PIX, axis=-1).mean()
+                try:
+                    save_path = os.path.dirname(sys.argv[1])
+                    save_path = os.path.join(save_path, f'save_data_{dataset_start_id}-{dataset_end_id}')
+                    os.makedirs(save_path, exist_ok=True)
+                    np.save(os.path.join(save_path, f'pix_pred_{mpjpe_all_pix_avg:.1f}.npy'), MOTION_PRED_PIX)
+                    np.save(os.path.join(save_path, f'pix_label_{mpjpe_all_pix_avg:.1f}.npy'), MOTION_LABEL_PIX)
+                except Exception:
+                    pass
+
+                MOTION_PRED_MM = MOTION_PRED_PIX * factor_2_5d
+                MOTION_LABEL_MM = MOTION_LABEL_PIX * factor_2_5d
+                MOTION_GT_MM = MOTION_GT_PIX * factor_2_5d
+
             
-            MOTION_GT_PIX_NORMED = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','skeleton_pose3d')) for skeleton_npy_path in skeleton_npy_path_list])    # (N,T,1,3)
-
-            MOTION_PRED_PIX_AFFINED = (MOTION_PRED + skeleton_offset) * skeleton_scale
-            MOTION_LABEL_PIX_AFFINED = (MOTION_LABEL + skeleton_offset) * skeleton_scale
-            MOTION_GT_PIX_AFFINED = (MOTION_GT_PIX_NORMED + skeleton_offset) * skeleton_scale
-
-            trans_inv = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','affine_trans_inv')) for skeleton_npy_path in skeleton_npy_path_list])  # (N,T,2,3)
-            MOTION_PRED_PIX_AFFINED_xy1 = np.concatenate([MOTION_PRED_PIX_AFFINED[..., :2], np.ones_like(MOTION_PRED_PIX_AFFINED[..., :1])], axis=-1)
-            MOTION_LABEL_PIX_AFFINED_xy1 = np.concatenate([MOTION_LABEL_PIX_AFFINED[..., :2], np.ones_like(MOTION_LABEL_PIX_AFFINED[..., :1])], axis=-1)
-            MOTION_GT_PIX_AFFINED_xy1 = np.concatenate([MOTION_GT_PIX_AFFINED[..., :2], np.ones_like(MOTION_GT_PIX_AFFINED[..., :1])], axis=-1)
-
-            MOTION_PRED_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_PRED_PIX_AFFINED_xy1)
-            MOTION_LABEL_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_LABEL_PIX_AFFINED_xy1)
-            MOTION_GT_PIX_xy = np.einsum('btij,btkj->btki', trans_inv, MOTION_GT_PIX_AFFINED_xy1)
-
-            MOTION_PRED_PIX = np.concatenate([MOTION_PRED_PIX_xy, MOTION_PRED_PIX_AFFINED[..., 2:]], axis=-1)
-            MOTION_LABEL_PIX = np.concatenate([MOTION_LABEL_PIX_xy, MOTION_LABEL_PIX_AFFINED[..., 2:]], axis=-1)
-            MOTION_GT_PIX = np.concatenate([MOTION_GT_PIX_xy, MOTION_GT_PIX_AFFINED[..., 2:]], axis=-1)
-
-            
-
-            factor_2_5d = np.stack([np.load(skeleton_npy_path.replace('skeleton_code','factor_2_5d')) for skeleton_npy_path in skeleton_npy_path_list])[..., None, None]     # (N,T,1,1)
-            MOTION_PRED_MM = MOTION_PRED_PIX * factor_2_5d
-            MOTION_LABEL_MM = MOTION_LABEL_PIX * factor_2_5d
-            MOTION_GT_MM = MOTION_GT_PIX * factor_2_5d
 
             MOTION_PRED_ROOTREL = MOTION_PRED_MM - MOTION_PRED_MM[...,0:1,:]
             MOTION_LABEL_ROOTREL = MOTION_LABEL_MM - MOTION_LABEL_MM[...,0:1,:]
             MOTION_GT_ROOTREL = MOTION_GT_MM - MOTION_GT_MM[...,0:1,:]
-            mpjpe_all_mm = np.linalg.norm(MOTION_GT_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
+            mpjpe_all_mm = np.linalg.norm(MOTION_LABEL_ROOTREL - MOTION_PRED_ROOTREL, axis=-1).mean((-2,-1)) # (N,)
             mpjpe_all_mm_avg = mpjpe_all_mm.mean()
+            try:
+                save_path = os.path.dirname(sys.argv[1])
+                save_path = os.path.join(save_path, f'save_data_{dataset_start_id}-{dataset_end_id}')
+                os.makedirs(save_path, exist_ok=True)
+                np.save(os.path.join(save_path, f'mm_pred_{mpjpe_all_mm_avg:.1f}.npy'), MOTION_PRED_ROOTREL)
+                np.save(os.path.join(save_path, f'mm_label_{mpjpe_all_mm_avg:.1f}.npy'), MOTION_LABEL_ROOTREL)
+            except Exception:
+                pass
+
+            if 'image' in data_key:
+                print(f'{mpjpe_all_mm.shape} samples; avg mpjpe (pix; affined): ', mpjpe_all_pix_affined_avg)
+                print(f'{mpjpe_all_mm.shape} samples; avg mpjpe (pix): ', mpjpe_all_pix_avg)
+
+            print(f'{mpjpe_all_mm.shape} samples; avg mpjpe (mm): ', mpjpe_all_mm_avg)
 
         except:
             pass

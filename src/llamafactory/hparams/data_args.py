@@ -138,7 +138,26 @@ class DataArguments:
         metadata={"help": "Whether or not to use a shared file system for the datasets."},
     )
 
+    # ADDED BY BRADLEY 251011 ###########################
+    dataset_eval_range: str = field(
+        default=None,
+        metadata={"help": ""},
+    )
+
     def __post_init__(self):
+
+
+        # ADDED BY BRADLEY 251011 ###########################
+        if self.dataset_eval_range is not None:
+            import ast
+            assert isinstance(self.dataset_eval_range, str)
+            self.dataset_eval_range = ast.literal_eval(self.dataset_eval_range)
+            assert isinstance(self.dataset_eval_range, list)
+            assert len(self.dataset_eval_range) == 2
+            assert isinstance(self.dataset_eval_range[0], int)
+            assert isinstance(self.dataset_eval_range[1], int)
+
+
         def split_arg(arg):
             if isinstance(arg, str):
                 return [item.strip() for item in arg.split(",")]
